@@ -635,6 +635,10 @@ textarea:focus {
   align-items: center;
 }
 
+.price-row {
+  min-width: 280px;
+}
+
 .price-card h3,
 .service-card h3 {
   margin: 10px 0 8px;
