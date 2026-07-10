@@ -373,6 +373,15 @@ textarea:focus {
   margin-bottom: 16px;
 }
 
+.stats.compact .stat-card {
+  min-height: 92px;
+}
+
+.stats.compact .stat-card strong {
+  margin-top: 10px;
+  font-size: 24px;
+}
+
 .stat-card,
 .panel,
 .pet-card,
@@ -638,6 +647,7 @@ th:last-child {
 .empty {
   display: grid;
   place-items: center;
+  gap: 14px;
   min-height: 210px;
   border: 1px dashed #cbdcd6;
   border-radius: 8px;
@@ -645,6 +655,10 @@ th:last-child {
   text-align: center;
   padding: 20px;
   background: #fbfdfc;
+}
+
+.compact-empty {
+  min-height: 160px;
 }
 
 .toast {
