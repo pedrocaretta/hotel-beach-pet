@@ -23,7 +23,7 @@ const seedState = {
     { id: "vac-2", petId: "p-thor", name: "Raiva", date: "2026-05-20", expires: "2027-05-20", fileName: "foto-carteira-thor.jpg" }
   ],
   pricing: {
-    hotel: { label: "Hospedagem", price: 0, unit: "diaria" },
+    hotel: { label: "Hospedagem", price: 100, smallPrice: 100, largePrice: 120, unit: "diaria" },
     banho: { label: "Banho", price: 0, unit: "servico" },
     tosa: { label: "Tosa", price: 0, unit: "servico" },
     banho_tosa: { label: "Banho e tosa", price: 0, unit: "pacote" }
@@ -76,6 +76,11 @@ function migrateState() {
     state.pricing[key].label ||= value.label;
     state.pricing[key].unit ||= value.unit;
     state.pricing[key].price ??= value.price;
+    if (key === "hotel") {
+      state.pricing[key].smallPrice ??= 100;
+      state.pricing[key].largePrice ??= 120;
+      state.pricing[key].price = state.pricing[key].smallPrice;
+    }
   });
 
   state.appointments.forEach((item) => {
@@ -165,7 +170,25 @@ function priceForService(service) {
   return Number(state.pricing?.[service]?.price || 0);
 }
 
+function hotelDailyPrice(size = "pequeno") {
+  return Number(size === "grande" ? state.pricing?.hotel?.largePrice ?? 120 : state.pricing?.hotel?.smallPrice ?? 100);
+}
+
+function daysBetween(start, end) {
+  if (!start) return 1;
+  const first = new Date(`${start}T00:00:00Z`);
+  const last = new Date(`${(end || start)}T00:00:00Z`);
+  const diff = Math.round((last - first) / 86400000);
+  return Math.max(diff || 1, 1);
+}
+
+function appointmentPrice(service, start, end, dogSize) {
+  if (service === "hotel") return hotelDailyPrice(dogSize) * daysBetween(start, end);
+  return priceForService(service);
+}
+
 function priceLabel(service) {
+  if (service === "hotel") return `Pequeno ${currency(hotelDailyPrice("pequeno"))} / Grande ${currency(hotelDailyPrice("grande"))}`;
   const price = priceForService(service);
   return price > 0 ? currency(price) : "A combinar";
 }
@@ -577,10 +600,23 @@ function pricingTemplate(user) {
             <h3>${label}</h3>
             <p class="meta">Valor atual: ${priceLabel(key)}</p>
           </div>
-          <label class="field">
-            <span>Valor em reais</span>
-            <input name="${key}" type="number" min="0" step="0.01" value="${state.pricing[key]?.price || 0}">
-          </label>
+          ${key === "hotel" ? `
+            <div class="row price-row">
+              <label class="field">
+                <span>Porte pequeno</span>
+                <input name="hotelSmall" type="number" min="0" step="0.01" value="${state.pricing.hotel?.smallPrice ?? 100}">
+              </label>
+              <label class="field">
+                <span>Porte grande</span>
+                <input name="hotelLarge" type="number" min="0" step="0.01" value="${state.pricing.hotel?.largePrice ?? 120}">
+              </label>
+            </div>
+          ` : `
+            <label class="field">
+              <span>Valor em reais</span>
+              <input name="${key}" type="number" min="0" step="0.01" value="${state.pricing[key]?.price || 0}">
+            </label>
+          `}
         </article>
       `).join("")}
       <button class="btn" type="submit">Salvar valores</button>
@@ -849,6 +885,12 @@ function bindApp(user) {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
     pricingItems().forEach(([key, label, unit]) => {
+      if (key === "hotel") {
+        const smallPrice = Number(data.hotelSmall || 100);
+        const largePrice = Number(data.hotelLarge || 120);
+        state.pricing[key] = { label, unit, price: smallPrice, smallPrice, largePrice };
+        return;
+      }
       state.pricing[key] = { label, unit, price: Number(data[key] || 0) };
     });
     saveState();
@@ -1041,6 +1083,7 @@ function modalForm(type, payload, user) {
           <label class="field"><span>Entrada ou data</span><input name="start" type="date" required></label>
           <label class="field"><span>Saida do hotel</span><input name="end" type="date"></label>
         </div>
+        <label class="field"><span>Porte do cao para hospedagem</span><select name="dogSize"><option value="pequeno">Porte pequeno - ${currency(hotelDailyPrice("pequeno"))} a diaria</option><option value="grande">Porte grande - ${currency(hotelDailyPrice("grande"))} a diaria</option></select></label>
         ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado">Agendado</option><option value="confirmado">Confirmado</option><option value="atendido">Atendido</option></select></label>` : ""}
         <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, banho junto com hospedagem"></textarea></label>
         <button class="btn" type="submit">${user.role === "admin" ? "Salvar agendamento" : "Enviar pedido de agendamento"}</button>
@@ -1195,7 +1238,8 @@ function bindModal(type, payload, user) {
 
     if (type === "appointment") {
       const pet = state.pets.find((item) => item.id === data.petId);
-      const price = data.service === "veterinario" ? 0 : priceForService(data.service);
+      const price = data.service === "veterinario" ? 0 : appointmentPrice(data.service, data.start, data.end || data.start, data.dogSize);
+      const dogSizeNote = data.service === "hotel" ? `Porte ${data.dogSize}. ${daysBetween(data.start, data.end || data.start)} diaria(s).` : "";
       state.appointments.push({
         id: uid("a"),
         petId: data.petId,
@@ -1205,12 +1249,12 @@ function bindModal(type, payload, user) {
         end: data.end || data.start,
         time: data.time,
         status: data.status || "agendado",
-        notes: data.notes,
+        notes: [dogSizeNote, data.notes].filter(Boolean).join(" "),
         price,
         employee: "",
         step: "agendado",
-        packageName: serviceLabel(data.service),
-        addons: "",
+        packageName: data.service === "hotel" ? `Hospedagem - porte ${data.dogSize}` : serviceLabel(data.service),
+        addons: dogSizeNote,
         commission: 0,
         feedback: data.notes
       });
