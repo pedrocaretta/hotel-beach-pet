@@ -218,6 +218,11 @@ textarea:focus {
   color: var(--aqua-dark);
 }
 
+.btn.secondary.danger {
+  background: #fff0f1;
+  color: var(--red);
+}
+
 .btn.warn {
   background: var(--coral);
 }
@@ -599,9 +604,52 @@ textarea:focus {
   gap: 14px;
 }
 
+.service-grid,
+.pricing-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
 .pet-card,
-.record-card {
+.record-card,
+.service-card,
+.price-card {
   padding: 15px;
+}
+
+.service-card,
+.price-card {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(40, 73, 80, 0.04);
+}
+
+.price-card {
+  grid-template-columns: 1fr minmax(150px, 210px);
+  align-items: center;
+}
+
+.price-card h3,
+.service-card h3 {
+  margin: 10px 0 8px;
+  font-size: 18px;
+}
+
+.price-tag {
+  display: block;
+  margin: 8px 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.slim-title {
+  margin-top: 8px;
 }
 
 .pet-head {
@@ -665,6 +713,13 @@ textarea:focus {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.table-actions {
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 table {
@@ -776,8 +831,14 @@ th:last-child {
   .stats,
   .dash-grid,
   .module-hero,
+  .service-grid,
+  .pricing-form,
   .content-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .price-card {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -795,6 +856,8 @@ th:last-child {
   .stats,
   .dash-grid,
   .module-hero,
+  .service-grid,
+  .pricing-form,
   .content-grid {
     grid-template-columns: 1fr;
   }
