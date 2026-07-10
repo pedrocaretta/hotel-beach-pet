@@ -30,6 +30,23 @@ let searchTerm = "";
 let modal = null;
 let toastTimer = null;
 
+const roleViews = {
+  admin: ["dashboard", "appointments", "pets", "vet", "vaccines", "users"],
+  cliente: ["appointments", "pets", "vaccines"]
+};
+
+function initialViewForUser(user) {
+  return user.role === "admin" ? "dashboard" : "appointments";
+}
+
+function allowedViews(user) {
+  return roleViews[user.role] || roleViews.cliente;
+}
+
+function normalizeView(user) {
+  if (!allowedViews(user).includes(view)) view = initialViewForUser(user);
+}
+
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   return saved ? JSON.parse(saved) : structuredClone(seedState);
@@ -42,7 +59,7 @@ function saveState() {
 function setSession(user) {
   session = user ? { id: user.id } : null;
   localStorage.setItem("hotelBeachPetSession", JSON.stringify(session));
-  view = "dashboard";
+  view = user ? initialViewForUser(user) : "dashboard";
   render();
 }
 
@@ -103,6 +120,7 @@ function render() {
     return;
   }
 
+  normalizeView(user);
   document.getElementById("app").innerHTML = appTemplate(user);
   bindApp(user);
   if (modal) openModal(modal.type, modal.payload);
@@ -166,11 +184,11 @@ function appTemplate(user) {
       <aside class="sidebar">
         <div class="side-logo"><span class="paw-mark">HB</span><span>Hotel Beach Pet</span></div>
         <nav class="nav">
-          ${navButton("dashboard", "Painel")}
-          ${navButton("appointments", "Agendamentos")}
-          ${navButton("pets", "Caes")}
+          ${user.role === "admin" ? navButton("dashboard", "Painel") : ""}
+          ${navButton("appointments", user.role === "admin" ? "Agendamentos" : "Agendar")}
+          ${navButton("pets", user.role === "admin" ? "Caes" : "Meus caes")}
           ${user.role === "admin" ? navButton("vet", "Veterinario") : ""}
-          ${navButton("vaccines", "Vacinas")}
+          ${navButton("vaccines", user.role === "admin" ? "Vacinas" : "Carteira de vacina")}
           ${user.role === "admin" ? navButton("users", "Usuarios") : ""}
         </nav>
         <div class="side-footer">
@@ -196,6 +214,7 @@ function navButton(id, label) {
 }
 
 function viewTemplate(user) {
+  normalizeView(user);
   const templates = {
     dashboard: dashboardTemplate,
     appointments: appointmentsTemplate,
@@ -275,24 +294,39 @@ function appointmentLine(item) {
 
 function appointmentsTemplate(user) {
   const items = filterItems(appointmentsForUser(user), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
+  const pending = items.filter((item) => item.status === "agendado").length;
+  const confirmed = items.filter((item) => item.status === "confirmado").length;
+  const hotel = items.filter((item) => item.service === "hotel").length;
+  const grooming = items.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service)).length;
+  const emptyColspan = user.role === "admin" ? 7 : 6;
+
   return `
     <div class="section-title">
-      <div><h2>Agendamentos</h2><p class="subtitle">Hotel, banho, tosa e consultas do veterinario.</p></div>
+      <div>
+        <h2>${user.role === "admin" ? "Central de agendamentos" : "Agendar meu cachorro"}</h2>
+        <p class="subtitle">${user.role === "admin" ? "Acompanhe reservas do hotel, banho, tosa e status de atendimento." : "Escolha o cachorro, a data e contrate hotel, banho ou tosa."}</p>
+      </div>
       <button class="btn" data-modal="appointment">Novo agendamento</button>
     </div>
+    <section class="stats compact">
+      ${statCard(user.role === "admin" ? "Aguardando confirmacao" : "Pedidos enviados", pending, "rgba(232, 185, 73, .2)")}
+      ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
+      ${statCard("Hotel", hotel, "rgba(41, 188, 135, .16)")}
+      ${statCard("Banho e tosa", grooming, "rgba(244, 127, 107, .18)")}
+    </section>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Pet</th><th>Tutor</th><th>Servico</th><th>Data</th><th>Status</th><th>Observacao</th><th>Acoes</th></tr></thead>
+        <thead><tr><th>Pet</th>${user.role === "admin" ? "<th>Tutor</th>" : ""}<th>Servico</th><th>Data</th><th>Status</th><th>Observacao</th>${user.role === "admin" ? "<th>Acoes</th>" : ""}</tr></thead>
         <tbody>${items.map((item) => `
           <tr>
             <td><strong>${petName(item.petId)}</strong></td>
-            <td>${ownerName(item.ownerId)}</td>
+            ${user.role === "admin" ? `<td>${ownerName(item.ownerId)}</td>` : ""}
             <td>${serviceLabel(item.service)}</td>
             <td>${formatDate(item.start)} ${item.end !== item.start ? `ate ${formatDate(item.end)}` : ""}<br><span class="meta">${item.time}</span></td>
             <td>${statusBadge(item.status)}</td>
             <td>${item.notes || "-"}</td>
-            <td>${user.role === "admin" ? `<button class="btn secondary" data-status="${item.id}">Atualizar</button>` : ""}</td>
-          </tr>`).join("") || `<tr><td colspan="7">${emptySmall("Nenhum agendamento encontrado.")}</td></tr>`}</tbody>
+            ${user.role === "admin" ? `<td><button class="btn secondary" data-status="${item.id}">Atualizar</button></td>` : ""}
+          </tr>`).join("") || `<tr><td colspan="${emptyColspan}">${emptySmall(user.role === "admin" ? "Nenhum agendamento encontrado." : "Voce ainda nao tem agendamentos.")}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -504,6 +538,10 @@ function bindApp(user) {
 function openModal(type, payload = {}) {
   modal = { type, payload };
   const user = currentUser();
+  if (user.role !== "admin" && ["vet", "user"].includes(type)) {
+    toast("Esta area e exclusiva do administrador.");
+    return;
+  }
   const existing = document.querySelector(".modal-backdrop");
   if (existing) existing.remove();
   document.body.insertAdjacentHTML("beforeend", modalTemplate(type, payload, user));
@@ -538,22 +576,42 @@ function ownerOptions(selected) {
   return state.users.filter((user) => user.role === "cliente").map((user) => `<option value="${user.id}" ${selected === user.id ? "selected" : ""}>${user.name}</option>`).join("");
 }
 
+function serviceOptions(user) {
+  const services = [
+    ["hotel", "Hotel"],
+    ["banho", "Banho"],
+    ["tosa", "Tosa"],
+    ["banho_tosa", "Banho e tosa"]
+  ];
+  if (user.role === "admin") services.push(["veterinario", "Veterinario"]);
+  return services.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+}
+
 function modalForm(type, payload, user) {
   if (type === "appointment") {
+    const pets = petOptions(user, payload.petId);
+    if (!pets) {
+      return `
+        <div class="empty compact-empty">
+          Cadastre um cachorro antes de criar o agendamento.
+          <button class="btn" type="button" data-switch-modal="pet">Cadastrar cachorro</button>
+        </div>
+      `;
+    }
     return `
       <form class="form-grid" id="modal-form">
-        <label class="field"><span>Pet</span><select name="petId" required>${petOptions(user, payload.petId)}</select></label>
+        <label class="field"><span>Pet</span><select name="petId" required>${pets}</select></label>
         <div class="row">
-          <label class="field"><span>Servico</span><select name="service"><option value="hotel">Hotel</option><option value="banho">Banho</option><option value="tosa">Tosa</option><option value="banho_tosa">Banho e tosa</option><option value="veterinario">Veterinario</option></select></label>
+          <label class="field"><span>Servico</span><select name="service">${serviceOptions(user)}</select></label>
           <label class="field"><span>Horario</span><input name="time" type="time" value="09:00" required></label>
         </div>
         <div class="row">
-          <label class="field"><span>Entrada/data</span><input name="start" type="date" required></label>
-          <label class="field"><span>Saida</span><input name="end" type="date"></label>
+          <label class="field"><span>Entrada ou data</span><input name="start" type="date" required></label>
+          <label class="field"><span>Saida do hotel</span><input name="end" type="date"></label>
         </div>
         ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado">Agendado</option><option value="confirmado">Confirmado</option><option value="atendido">Atendido</option></select></label>` : ""}
-        <label class="field"><span>Observacao</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, cuidados extras"></textarea></label>
-        <button class="btn" type="submit">Salvar agendamento</button>
+        <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, banho junto com hospedagem"></textarea></label>
+        <button class="btn" type="submit">${user.role === "admin" ? "Salvar agendamento" : "Enviar pedido de agendamento"}</button>
       </form>
     `;
   }
@@ -631,7 +689,14 @@ function bindModal(type, payload, user) {
     if (event.target.className === "modal-backdrop") closeModal();
   });
 
-  document.getElementById("modal-form").addEventListener("submit", (event) => {
+  document.querySelectorAll("[data-switch-modal]").forEach((button) => {
+    button.addEventListener("click", () => openModal(button.dataset.switchModal, payload));
+  });
+
+  const modalFormEl = document.getElementById("modal-form");
+  if (!modalFormEl) return;
+
+  modalFormEl.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
     const data = Object.fromEntries(new FormData(form));
