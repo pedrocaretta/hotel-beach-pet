@@ -21,7 +21,13 @@ const seedState = {
   vaccines: [
     { id: "vac-1", petId: "p-bela", name: "V10", date: "2026-04-02", expires: "2027-04-02", fileName: "carteira-belinha.pdf" },
     { id: "vac-2", petId: "p-thor", name: "Raiva", date: "2026-05-20", expires: "2027-05-20", fileName: "foto-carteira-thor.jpg" }
-  ]
+  ],
+  pricing: {
+    hotel: { label: "Hospedagem", price: 0, unit: "diaria" },
+    banho: { label: "Banho", price: 0, unit: "servico" },
+    tosa: { label: "Tosa", price: 0, unit: "servico" },
+    banho_tosa: { label: "Banho e tosa", price: 0, unit: "pacote" }
+  }
 };
 
 let state = loadState();
@@ -33,8 +39,8 @@ let modal = null;
 let toastTimer = null;
 
 const roleViews = {
-  admin: ["dashboard", "appointments", "grooming", "clinic", "pets", "vet", "vaccines", "users"],
-  cliente: ["appointments", "pets", "vaccines"]
+  admin: ["dashboard", "appointments", "grooming", "pricing", "clinic", "pets", "users"],
+  cliente: ["appointments", "grooming", "pets", "vaccines"]
 };
 
 function initialViewForUser(user) {
@@ -64,6 +70,13 @@ function migrateState() {
   state.appointments ||= [];
   state.vetRecords ||= [];
   state.vaccines ||= [];
+  state.pricing ||= structuredClone(seedState.pricing);
+  Object.entries(seedState.pricing).forEach(([key, value]) => {
+    state.pricing[key] ||= structuredClone(value);
+    state.pricing[key].label ||= value.label;
+    state.pricing[key].unit ||= value.unit;
+    state.pricing[key].price ??= value.price;
+  });
 
   state.appointments.forEach((item) => {
     const defaultPrice = item.service === "hotel" ? 360 : item.service === "veterinario" ? 90 : 120;
@@ -139,6 +152,24 @@ function currency(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
 
+function pricingItems() {
+  return [
+    ["hotel", "Hospedagem", "diaria"],
+    ["banho", "Banho", "servico"],
+    ["tosa", "Tosa", "servico"],
+    ["banho_tosa", "Banho e tosa", "pacote"]
+  ];
+}
+
+function priceForService(service) {
+  return Number(state.pricing?.[service]?.price || 0);
+}
+
+function priceLabel(service) {
+  const price = priceForService(service);
+  return price > 0 ? currency(price) : "A combinar";
+}
+
 function groomingAppointments() {
   return state.appointments.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service));
 }
@@ -152,7 +183,7 @@ function appointmentRevenue(items) {
 }
 
 function statusBadge(status) {
-  const styles = { confirmado: "blue", atendido: "", agendado: "gold", faltou: "red" };
+  const styles = { confirmado: "blue", atendido: "", agendado: "gold", faltou: "red", recusado: "red" };
   return `<span class="badge ${styles[status] || ""}">${status}</span>`;
 }
 
@@ -257,11 +288,11 @@ function appTemplate(user) {
         <nav class="nav">
           ${user.role === "admin" ? navButton("dashboard", "Painel") : ""}
           ${navButton("appointments", user.role === "admin" ? "Agendamentos" : "Agendar")}
-          ${user.role === "admin" ? navButton("grooming", "Banho e Tosa") : ""}
-          ${user.role === "admin" ? navButton("clinic", "Clinica") : ""}
+          ${navButton("grooming", "Banho e Tosa")}
+          ${user.role === "admin" ? navButton("pricing", "Valores") : ""}
+          ${user.role === "admin" ? navButton("clinic", "Saude") : ""}
           ${navButton("pets", user.role === "admin" ? "Caes" : "Meus caes")}
-          ${user.role === "admin" ? navButton("vet", "Veterinario") : ""}
-          ${navButton("vaccines", user.role === "admin" ? "Vacinas" : "Carteira de vacina")}
+          ${user.role === "admin" ? "" : navButton("vaccines", "Carteira de vacina")}
           ${user.role === "admin" ? navButton("users", "Usuarios") : ""}
         </nav>
         <div class="side-footer">
@@ -292,6 +323,7 @@ function viewTemplate(user) {
     dashboard: dashboardTemplate,
     appointments: appointmentsTemplate,
     grooming: groomingTemplate,
+    pricing: pricingTemplate,
     clinic: clinicTemplate,
     pets: petsTemplate,
     vet: vetTemplate,
@@ -380,27 +412,28 @@ function appointmentsTemplate(user) {
   const items = filterItems(appointmentsForUser(user), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
   const pending = items.filter((item) => item.status === "agendado").length;
   const confirmed = items.filter((item) => item.status === "confirmado").length;
+  const rejected = items.filter((item) => item.status === "recusado").length;
   const hotel = items.filter((item) => item.service === "hotel").length;
   const grooming = items.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service)).length;
-  const emptyColspan = user.role === "admin" ? 7 : 6;
+  const emptyColspan = user.role === "admin" ? 8 : 6;
 
   return `
     <div class="section-title">
       <div>
-        <h2>${user.role === "admin" ? "Central de agendamentos" : "Agendar meu cachorro"}</h2>
-        <p class="subtitle">${user.role === "admin" ? "Acompanhe reservas do hotel, banho, tosa e status de atendimento." : "Escolha o cachorro, a data e contrate hotel, banho ou tosa."}</p>
+        <h2>${user.role === "admin" ? "Pedidos de agendamento" : "Agendar meu cachorro"}</h2>
+        <p class="subtitle">${user.role === "admin" ? "Aceite ou recuse os pedidos enviados pelos clientes. Os valores sao definidos na aba Valores." : "Escolha o cachorro, a data e contrate hotel, banho ou tosa."}</p>
       </div>
-      <button class="btn" data-modal="appointment">Novo agendamento</button>
+      ${user.role === "admin" ? "" : `<button class="btn" data-modal="appointment">Novo agendamento</button>`}
     </div>
     <section class="stats compact">
       ${statCard(user.role === "admin" ? "Aguardando confirmacao" : "Pedidos enviados", pending, "rgba(232, 185, 73, .2)")}
       ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
-      ${statCard("Hotel", hotel, "rgba(41, 188, 135, .16)")}
+      ${user.role === "admin" ? statCard("Recusados", rejected, "rgba(228, 87, 99, .16)") : statCard("Hotel", hotel, "rgba(41, 188, 135, .16)")}
       ${statCard("Banho e tosa", grooming, "rgba(244, 127, 107, .18)")}
     </section>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Pet</th>${user.role === "admin" ? "<th>Tutor</th>" : ""}<th>Servico</th><th>Data</th><th>Status</th><th>Observacao</th>${user.role === "admin" ? "<th>Acoes</th>" : ""}</tr></thead>
+        <thead><tr><th>Pet</th>${user.role === "admin" ? "<th>Tutor</th>" : ""}<th>Servico</th><th>Data</th><th>Status</th><th>Valor</th><th>Observacao</th>${user.role === "admin" ? "<th>Acoes</th>" : ""}</tr></thead>
         <tbody>${items.map((item) => `
           <tr>
             <td><strong>${petName(item.petId)}</strong></td>
@@ -408,16 +441,71 @@ function appointmentsTemplate(user) {
             <td>${serviceLabel(item.service)}</td>
             <td>${formatDate(item.start)} ${item.end !== item.start ? `ate ${formatDate(item.end)}` : ""}<br><span class="meta">${item.time}</span></td>
             <td>${statusBadge(item.status)}</td>
+            <td>${currency(item.price || priceForService(item.service))}</td>
             <td>${item.notes || "-"}</td>
-            ${user.role === "admin" ? `<td><button class="btn secondary" data-status="${item.id}">Atualizar</button></td>` : ""}
-          </tr>`).join("") || `<tr><td colspan="${emptyColspan}">${emptySmall(user.role === "admin" ? "Nenhum agendamento encontrado." : "Voce ainda nao tem agendamentos.")}</td></tr>`}</tbody>
+            ${user.role === "admin" ? `<td><div class="table-actions"><button class="btn secondary" data-appointment-action="confirmado" data-id="${item.id}">Aceitar</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.id}">Recusar</button></div></td>` : ""}
+          </tr>`).join("") || `<tr><td colspan="${emptyColspan}">${emptySmall(user.role === "admin" ? "Nenhum pedido encontrado." : "Voce ainda nao tem agendamentos.")}</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function clientGroomingTemplate(user) {
+  const services = pricingItems().filter(([key]) => key !== "hotel");
+  const myRequests = filterItems(groomingAppointments().filter((item) => item.ownerId === user.id), (item) => `${petName(item.petId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
+
+  return `
+    <div class="section-title">
+      <div>
+        <h2>Contratar Banho e Tosa</h2>
+        <p class="subtitle">Escolha o servico, envie o pedido e aguarde o aceite do Hotel Beach Pet.</p>
+      </div>
+    </div>
+    <section class="module-hero grooming-hero">
+      <div>
+        <span class="module-kicker">Servicos para seu cao</span>
+        <h3>Banho, tosa ou pacote completo com pedido online.</h3>
+        <p>Os valores abaixo sao definidos pelo administrador. Quando ainda nao houver preco cadastrado, o servico fica como a combinar.</p>
+      </div>
+      <div class="module-list">
+        <span>Pedido enviado direto para o admin</span>
+        <span>Valor exibido antes de contratar</span>
+        <span>Status acompanhado na sua conta</span>
+      </div>
+    </section>
+    <section class="service-grid">
+      ${services.map(([key, label, unit]) => `
+        <article class="service-card">
+          <span class="badge gold">${unit}</span>
+          <h3>${label}</h3>
+          <strong class="price-tag">${priceLabel(key)}</strong>
+          <p class="meta">Agende o melhor horario para seu cachorro.</p>
+          <button class="btn" data-modal="grooming" data-service="${key}">Contratar</button>
+        </article>
+      `).join("")}
+    </section>
+    <div class="section-title slim-title">
+      <div><h2>Meus pedidos de banho e tosa</h2><p class="subtitle">Acompanhe se o admin aceitou ou recusou.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pet</th><th>Servico</th><th>Data</th><th>Status</th><th>Valor</th><th>Observacao</th></tr></thead>
+        <tbody>${myRequests.map((item) => `
+          <tr>
+            <td><strong>${petName(item.petId)}</strong></td>
+            <td>${serviceLabel(item.service)}</td>
+            <td>${formatDate(item.start)}<br><span class="meta">${item.time}</span></td>
+            <td>${statusBadge(item.status)}</td>
+            <td>${currency(item.price || priceForService(item.service))}</td>
+            <td>${item.notes || "-"}</td>
+          </tr>`).join("") || `<tr><td colspan="6">${emptySmall("Voce ainda nao contratou banho e tosa.")}</td></tr>`}</tbody>
       </table>
     </div>
   `;
 }
 
 function groomingTemplate(user) {
-  if (user.role !== "admin") return appointmentsTemplate(user);
+  if (user.role !== "admin") return clientGroomingTemplate(user);
   const items = filterItems(groomingAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.packageName} ${item.addons} ${item.feedback}`);
   const active = items.filter((item) => item.status !== "atendido" && item.status !== "faltou").length;
   const revenue = appointmentRevenue(items);
@@ -471,6 +559,35 @@ function groomingTemplate(user) {
   `;
 }
 
+function pricingTemplate(user) {
+  if (user.role !== "admin") return appointmentsTemplate(user);
+
+  return `
+    <div class="section-title">
+      <div>
+        <h2>Valores</h2>
+        <p class="subtitle">Defina os precos que aparecem para o cliente em hospedagem, banho e tosa.</p>
+      </div>
+    </div>
+    <form class="pricing-form" id="pricing-form">
+      ${pricingItems().map(([key, label, unit]) => `
+        <article class="price-card">
+          <div>
+            <span class="badge">${unit}</span>
+            <h3>${label}</h3>
+            <p class="meta">Valor atual: ${priceLabel(key)}</p>
+          </div>
+          <label class="field">
+            <span>Valor em reais</span>
+            <input name="${key}" type="number" min="0" step="0.01" value="${state.pricing[key]?.price || 0}">
+          </label>
+        </article>
+      `).join("")}
+      <button class="btn" type="submit">Salvar valores</button>
+    </form>
+  `;
+}
+
 function clinicTemplate(user) {
   if (user.role !== "admin") return appointmentsTemplate(user);
   const consultations = filterItems(clinicAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.notes}`);
@@ -483,22 +600,26 @@ function clinicTemplate(user) {
   return `
     <div class="section-title">
       <div>
-        <h2>Clinica Veterinaria</h2>
-        <p class="subtitle">Fichas digitais, prontuario, receitas, peso, vermifugo, vacinas e internamentos.</p>
+        <h2>Saude do pet</h2>
+        <p class="subtitle">Clinica, veterinario, observacoes, prontuario e vacinas em uma unica area.</p>
       </div>
-      <button class="btn" data-modal="clinic">Nova ficha clinica</button>
+      <div class="actions inline-actions">
+        <button class="btn" data-modal="clinic">Nova ficha</button>
+        <button class="btn secondary" data-modal="vet">Obs. veterinaria</button>
+        <button class="btn secondary" data-modal="vaccine">Vacina</button>
+      </div>
     </div>
     <section class="module-hero clinic-hero">
       <div>
-        <span class="module-kicker">Prontuario digital</span>
-        <h3>Acabe com o papel: fichas e atendimentos em um so lugar.</h3>
-        <p>Acompanhe consultas, retornos, receituarios, alertas de vacina e cuidados especiais de cada cachorro.</p>
+        <span class="module-kicker">Area unificada</span>
+        <h3>Prontuario, cuidados veterinarios e vacinas sem abas extras.</h3>
+        <p>Acompanhe consultas, receitas, medicacoes, alertas de vacina e cuidados especiais de cada cachorro.</p>
       </div>
       <div class="module-list">
         <span>Fichas e anamnese por especialidade</span>
-        <span>Receituarios e formularios</span>
-        <span>Controle de peso e vermifugos</span>
-        <span>Alertas automaticos de vacinas</span>
+        <span>Receituarios, remedios e observacoes</span>
+        <span>Controle de peso, vermifugos e internamentos</span>
+        <span>Carteira e alertas de vacinas</span>
       </div>
     </section>
     <section class="stats compact">
@@ -517,7 +638,7 @@ function clinicTemplate(user) {
           </div>`).join("") || emptySmall("Nenhuma consulta veterinaria agendada.")}</div>
       </div>
       <div class="panel">
-        <h3>Alertas de vacina</h3>
+        <h3>Carteira e alertas de vacina</h3>
         <div class="list">${state.vaccines.map((item) => `
           <div class="list-item"><div><strong>${petName(item.petId)} - ${item.name}</strong><span>Validade: ${formatDate(item.expires)}</span></div><span class="badge ${item.expires ? "gold" : ""}">${item.fileName ? "anexo" : "sem anexo"}</span></div>
         `).join("") || emptySmall("Nenhuma vacina cadastrada.")}</div>
@@ -711,17 +832,28 @@ function bindApp(user) {
   });
 
   document.querySelectorAll("[data-modal]").forEach((button) => {
-    button.addEventListener("click", () => openModal(button.dataset.modal, { petId: button.dataset.pet }));
+    button.addEventListener("click", () => openModal(button.dataset.modal, { petId: button.dataset.pet, service: button.dataset.service }));
   });
 
-  document.querySelectorAll("[data-status]").forEach((button) => {
+  document.querySelectorAll("[data-appointment-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      const item = state.appointments.find((appointment) => appointment.id === button.dataset.status);
-      const next = { agendado: "confirmado", confirmado: "atendido", atendido: "faltou", faltou: "agendado" };
-      item.status = next[item.status] || "agendado";
+      const item = state.appointments.find((appointment) => appointment.id === button.dataset.id);
+      item.status = button.dataset.appointmentAction;
+      if (item.status === "confirmado" && !item.price) item.price = priceForService(item.service);
       saveState();
       render();
     });
+  });
+
+  document.getElementById("pricing-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    pricingItems().forEach(([key, label, unit]) => {
+      state.pricing[key] = { label, unit, price: Number(data[key] || 0) };
+    });
+    saveState();
+    toast("Valores salvos.");
+    render();
   });
 
   document.querySelectorAll("[data-grooming-step]").forEach((button) => {
@@ -758,7 +890,7 @@ function bindApp(user) {
 function openModal(type, payload = {}) {
   modal = { type, payload };
   const user = currentUser();
-  if (user.role !== "admin" && ["vet", "user", "grooming", "clinic"].includes(type)) {
+  if (user.role !== "admin" && ["vet", "user", "clinic"].includes(type)) {
     toast("Esta area e exclusiva do administrador.");
     return;
   }
@@ -804,11 +936,40 @@ function serviceOptions(user) {
     ["banho_tosa", "Banho e tosa"]
   ];
   if (user.role === "admin") services.push(["veterinario", "Veterinario"]);
-  return services.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  return services.map(([value, label]) => `<option value="${value}">${label}${value === "veterinario" ? "" : ` - ${priceLabel(value)}`}</option>`).join("");
 }
 
 function modalForm(type, payload, user) {
   if (type === "grooming") {
+    if (user.role !== "admin") {
+      const selectedService = payload.service || "banho";
+      const pets = petOptions(user, payload.petId);
+      if (!pets) {
+        return `
+          <div class="empty compact-empty">
+            Cadastre um cachorro antes de contratar banho e tosa.
+            <button class="btn" type="button" data-switch-modal="pet">Cadastrar cachorro</button>
+          </div>
+        `;
+      }
+      return `
+        <form class="form-grid" id="modal-form">
+          <label class="field"><span>Pet</span><select name="petId" required>${pets}</select></label>
+          <label class="field"><span>Servico</span><select name="service">
+            <option value="banho" ${selectedService === "banho" ? "selected" : ""}>Banho - ${priceLabel("banho")}</option>
+            <option value="tosa" ${selectedService === "tosa" ? "selected" : ""}>Tosa - ${priceLabel("tosa")}</option>
+            <option value="banho_tosa" ${selectedService === "banho_tosa" ? "selected" : ""}>Banho e tosa - ${priceLabel("banho_tosa")}</option>
+          </select></label>
+          <div class="row">
+            <label class="field"><span>Data</span><input name="start" type="date" required></label>
+            <label class="field"><span>Horario</span><input name="time" type="time" value="09:00" required></label>
+          </div>
+          <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: cuidado com alergia, tipo de tosa, comportamento no banho"></textarea></label>
+          <button class="btn" type="submit">Enviar pedido</button>
+        </form>
+      `;
+    }
+
     return `
       <form class="form-grid" id="modal-form">
         <label class="field"><span>Pet</span><select name="petId" required>${petOptions({ role: "admin" }, payload.petId)}</select></label>
@@ -974,7 +1135,7 @@ function bindModal(type, payload, user) {
 
     if (type === "grooming") {
       const pet = state.pets.find((item) => item.id === data.petId);
-      const price = Number(data.price || 0);
+      const price = user.role === "admin" ? Number(data.price || 0) : priceForService(data.service);
       const commission = data.commission ? Number(data.commission) : Math.round(price * 0.15 * 100) / 100;
       state.appointments.push({
         id: uid("a"),
@@ -984,17 +1145,17 @@ function bindModal(type, payload, user) {
         start: data.start,
         end: data.start,
         time: data.time,
-        status: data.step === "finalizado" ? "atendido" : "confirmado",
-        notes: data.feedback,
+        status: user.role === "admin" ? (data.step === "finalizado" ? "atendido" : "confirmado") : "agendado",
+        notes: user.role === "admin" ? data.feedback : data.notes,
         price,
-        employee: data.employee,
-        step: data.step,
-        packageName: data.packageName,
-        addons: data.addons,
-        commission,
-        feedback: data.feedback
+        employee: user.role === "admin" ? data.employee : "",
+        step: user.role === "admin" ? data.step : "agendado",
+        packageName: user.role === "admin" ? data.packageName : serviceLabel(data.service),
+        addons: user.role === "admin" ? data.addons : "",
+        commission: user.role === "admin" ? commission : 0,
+        feedback: user.role === "admin" ? data.feedback : data.notes
       });
-      toast("Banho/tosa salvo.");
+      toast(user.role === "admin" ? "Banho/tosa salvo." : "Pedido enviado para o admin.");
     }
 
     if (type === "clinic") {
@@ -1034,6 +1195,7 @@ function bindModal(type, payload, user) {
 
     if (type === "appointment") {
       const pet = state.pets.find((item) => item.id === data.petId);
+      const price = data.service === "veterinario" ? 0 : priceForService(data.service);
       state.appointments.push({
         id: uid("a"),
         petId: data.petId,
@@ -1043,7 +1205,14 @@ function bindModal(type, payload, user) {
         end: data.end || data.start,
         time: data.time,
         status: data.status || "agendado",
-        notes: data.notes
+        notes: data.notes,
+        price,
+        employee: "",
+        step: "agendado",
+        packageName: serviceLabel(data.service),
+        addons: "",
+        commission: 0,
+        feedback: data.notes
       });
       toast("Agendamento salvo.");
     }
