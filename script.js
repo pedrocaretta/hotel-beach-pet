@@ -37,6 +37,7 @@ let view = "dashboard";
 let searchTerm = "";
 let modal = null;
 let toastTimer = null;
+let selectedPetId = null;
 
 const roleViews = {
   admin: ["dashboard", "appointments", "grooming", "pricing", "clinic", "pets", "users"],
@@ -149,6 +150,11 @@ function formatDate(date) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 }
 
+function shortDate(date) {
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+}
+
 function serviceLabel(service) {
   return { hotel: "Hotel", banho: "Banho", tosa: "Tosa", banho_tosa: "Banho e tosa", veterinario: "Veterinario" }[service] || service;
 }
@@ -203,6 +209,40 @@ function clinicAppointments() {
 
 function appointmentRevenue(items) {
   return items.reduce((total, item) => total + Number(item.price || 0), 0);
+}
+
+function dateOnly(value) {
+  return new Date(`${value}T00:00:00Z`);
+}
+
+function weekRange() {
+  const today = new Date();
+  const start = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const day = start.getUTCDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  start.setUTCDate(start.getUTCDate() + diffToMonday);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+  return { start, end };
+}
+
+function isAppointmentInWeek(item) {
+  const { start, end } = weekRange();
+  const appointmentStart = dateOnly(item.start);
+  const appointmentEnd = dateOnly(item.end || item.start);
+  return appointmentStart <= end && appointmentEnd >= start;
+}
+
+function petAppointments(petId) {
+  return state.appointments.filter((item) => item.petId === petId).sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`));
+}
+
+function weekAppointments() {
+  return state.appointments.filter(isAppointmentInWeek).sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`));
+}
+
+function petInitials(name) {
+  return (name || "Pet").split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
 function statusBadge(status) {
@@ -358,62 +398,79 @@ function viewTemplate(user) {
 
 function dashboardTemplate(user) {
   const appointments = appointmentsForUser(user);
-  const pets = petsForUser(user);
   const grooming = groomingAppointments();
   const clinic = clinicAppointments();
+  const week = weekAppointments();
+  const weekPets = [...new Set(week.map((item) => item.petId))].length;
+  const pending = appointments.filter((item) => item.status === "agendado");
   const confirmed = appointments.filter((item) => item.status === "confirmado").length;
-  const attended = appointments.filter((item) => item.status === "atendido").length;
-  const missed = appointments.filter((item) => item.status === "faltou").length;
-  const upcoming = [...appointments].sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`)).slice(0, 5);
-  const birthdays = pets.slice(0, 4);
+  const upcoming = [...appointments].filter((item) => item.status !== "recusado").sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`)).slice(0, 5);
   const revenue = appointmentRevenue(appointments);
+  const vaccineLimit = new Date();
+  vaccineLimit.setMonth(vaccineLimit.getMonth() + 6);
+  const vaccineAlerts = state.vaccines.filter((item) => item.expires && new Date(`${item.expires}T00:00:00Z`) <= vaccineLimit).slice(0, 4);
 
   return `
     <div class="section-title">
       <div>
-        <h2>Dashboard</h2>
-        <p class="subtitle">Aqui estao os dados para sua analise.</p>
+        <h2>Painel de operacao</h2>
+        <p class="subtitle">O essencial para decidir rapido: pedidos, caes da semana, horarios e alertas.</p>
       </div>
-      <div class="filters">
-        <select><option>Todos os profissionais</option><option>Banho e tosa</option><option>Veterinario</option></select>
-        <input type="date" value="2026-07-10">
+      <div class="actions inline-actions">
+        <button class="btn" data-view="appointments">Ver pedidos</button>
+        <button class="btn secondary" data-view="pets">Hotel da semana</button>
       </div>
     </div>
     <section class="stats">
-      ${statCard("Pets agendados", appointments.length, "rgba(244, 127, 107, .18)")}
-      ${statCard("Pets confirmados", confirmed, "rgba(79, 141, 247, .16)")}
-      ${statCard("Banho e tosa", grooming.length, "rgba(232, 185, 73, .2)")}
-      ${statCard("Clinica veterinaria", clinic.length, "rgba(41, 188, 135, .16)")}
-    </section>
-    <section class="stats compact">
-      ${statCard("Pets atendidos", attended, "rgba(41, 188, 135, .16)")}
-      ${statCard("Pets que faltaram", missed, "rgba(228, 87, 99, .16)")}
+      ${statCard("Pedidos pendentes", pending.length, "rgba(232, 185, 73, .2)")}
+      ${statCard("Caes esta semana", weekPets, "rgba(244, 127, 107, .18)")}
+      ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
       ${statCard("Faturamento previsto", currency(revenue), "rgba(79, 141, 247, .16)", "total")}
-      ${statCard("Comissoes banho/tosa", currency(grooming.reduce((total, item) => total + Number(item.commission || 0), 0)), "rgba(244, 127, 107, .18)", "previsto")}
     </section>
-    <section class="dash-grid">
-      <div class="panel">
-        <h3>Atendimentos do periodo</h3>
-        <div class="chart">
-          ${[35, 74, 42, 88, 56, 68, 46].map((h, index) => `<div class="bar" style="height:${h}%"><span>${["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"][index]}</span></div>`).join("")}
+    <section class="ops-grid">
+      <div class="panel priority-panel">
+        <div class="panel-head">
+          <h3>Pedidos para aceitar</h3>
+          <button class="btn secondary" data-view="appointments">Abrir fila</button>
         </div>
+        <div class="list">${pending.slice(0, 4).map((item) => `
+          <div class="decision-item">
+            <div><strong>${petName(item.petId)} - ${serviceLabel(item.service)}</strong><span>${ownerName(item.ownerId)} - ${formatDate(item.start)} ${item.time} - ${currency(item.price || priceForService(item.service))}</span></div>
+            <div class="table-actions"><button class="btn secondary" data-appointment-action="confirmado" data-id="${item.id}">Aceitar</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.id}">Recusar</button></div>
+          </div>
+        `).join("") || emptySmall("Nenhum pedido aguardando aceite.")}</div>
       </div>
       <div class="panel">
-        <h3>Proximos agendamentos</h3>
+        <div class="panel-head">
+          <h3>Proximos horarios</h3>
+          <button class="btn secondary" data-view="pets">Ver quartos</button>
+        </div>
         <div class="list">${upcoming.map(appointmentLine).join("") || emptySmall("Nenhum agendamento ainda.")}</div>
       </div>
       <div class="panel">
-        <h3>Procedimentos realizados</h3>
+        <div class="panel-head">
+          <h3>Servicos em movimento</h3>
+          <button class="btn secondary" data-view="grooming">Banho e tosa</button>
+        </div>
         <div class="list">
           ${procedureRow("Hotel", appointments.filter((item) => item.service === "hotel").length, "gold")}
-          ${procedureRow("Banho", appointments.filter((item) => item.service === "banho").length, "")}
-          ${procedureRow("Tosa", appointments.filter((item) => item.service === "tosa" || item.service === "banho_tosa").length, "blue")}
-          ${procedureRow("Clinica", clinic.length, "red")}
+          ${procedureRow("Banho e tosa", grooming.length, "blue")}
+          ${procedureRow("Saude", clinic.length, "red")}
         </div>
       </div>
       <div class="panel">
-        <h3>Pets cadastrados</h3>
-        <div class="list">${birthdays.map((pet) => `<div class="list-item"><div><strong>${pet.name}</strong><span>${pet.breed} - ${ownerName(pet.ownerId)}</span></div><span class="badge">ativo</span></div>`).join("") || emptySmall("Nenhum pet cadastrado.")}</div>
+        <div class="panel-head">
+          <h3>Alertas de saude</h3>
+          <button class="btn secondary" data-view="clinic">Saude</button>
+        </div>
+        <div class="list">${vaccineAlerts.map((item) => `
+          <div class="list-item"><div><strong>${petName(item.petId)} - ${item.name}</strong><span>Validade: ${formatDate(item.expires)}</span></div><span class="badge gold">vacina</span></div>
+        `).join("") || emptySmall("Nenhum alerta de vacina proximo.")}</div>
+      </div>
+      <div class="quick-actions">
+        <button class="quick-action" data-view="pricing"><strong>Valores</strong><span>Atualizar diaria e servicos</span></button>
+        <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>
+        <button class="quick-action" data-view="users"><strong>Usuarios</strong><span>Logins de tutores</span></button>
       </div>
     </section>
   `;
@@ -699,6 +756,7 @@ function clinicTemplate(user) {
 }
 
 function petsTemplate(user) {
+  if (user.role === "admin") return petHotelTemplate(user);
   const pets = filterItems(petsForUser(user), (pet) => `${pet.name} ${pet.breed} ${ownerName(pet.ownerId)} ${pet.temperament} ${pet.allergies}`);
   return `
     <div class="section-title">
@@ -708,6 +766,107 @@ function petsTemplate(user) {
     <section class="content-grid">
       ${pets.map((pet) => petCard(pet, user)).join("") || emptyBlock("Nenhum cachorro cadastrado ainda.")}
     </section>
+  `;
+}
+
+function petHotelTemplate(user) {
+  const appointments = filterItems(weekAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
+  const petIds = [...new Set(appointments.map((item) => item.petId))];
+  const pets = petIds.map((id) => state.pets.find((pet) => pet.id === id)).filter(Boolean);
+  const selectedPet = state.pets.find((pet) => pet.id === selectedPetId) || pets[0] || state.pets[0];
+  selectedPetId = selectedPet?.id || null;
+  const selectedAppointments = selectedPet ? petAppointments(selectedPet.id) : [];
+  const weekSelected = selectedAppointments.filter(isAppointmentInWeek);
+  const hotelCount = appointments.filter((item) => item.service === "hotel").length;
+  const groomingCount = appointments.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service)).length;
+  const confirmed = appointments.filter((item) => item.status === "confirmado").length;
+  const { start, end } = weekRange();
+
+  return `
+    <div class="section-title">
+      <div>
+        <h2>Hotel da semana</h2>
+        <p class="subtitle">Caes com reservas e servicos entre ${shortDate(start.toISOString().slice(0, 10))} e ${shortDate(end.toISOString().slice(0, 10))}. Clique em um cachorro para abrir o quarto.</p>
+      </div>
+      <button class="btn" data-modal="pet">Novo cao</button>
+    </div>
+    <section class="stats compact">
+      ${statCard("Caes na semana", pets.length, "rgba(244, 127, 107, .18)")}
+      ${statCard("Hospedagens", hotelCount, "rgba(41, 188, 135, .16)")}
+      ${statCard("Banho e tosa", groomingCount, "rgba(232, 185, 73, .2)")}
+      ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
+    </section>
+    <section class="hotel-board">
+      <div class="kennel-map">
+        ${pets.map((pet, index) => hotelPetCard(pet, appointments.filter((item) => item.petId === pet.id), index)).join("") || emptyBlock("Nenhum cachorro agendado nesta semana.")}
+      </div>
+      <aside class="pet-suite">
+        ${selectedPet ? petSuite(selectedPet, weekSelected, selectedAppointments, user) : emptyBlock("Selecione um cachorro para ver detalhes.")}
+      </aside>
+    </section>
+  `;
+}
+
+function hotelPetCard(pet, appointments, index) {
+  const next = appointments[0];
+  const isActive = selectedPetId === pet.id;
+  const tones = ["room-aqua", "room-coral", "room-gold", "room-blue"];
+  return `
+    <button class="hotel-pet ${tones[index % tones.length]} ${isActive ? "active" : ""}" data-select-pet="${pet.id}">
+      <span class="room-number">Suite ${String(index + 1).padStart(2, "0")}</span>
+      <span class="pet-bubble">${petInitials(pet.name)}</span>
+      <strong>${pet.name}</strong>
+      <span>${pet.breed || "Sem raca"} - ${ownerName(pet.ownerId)}</span>
+      <small>${next ? `${serviceLabel(next.service)} em ${shortDate(next.start)} as ${next.time}` : "Sem agenda na semana"}</small>
+      <span class="badge ${next?.status === "confirmado" ? "blue" : "gold"}">${next?.status || "livre"}</span>
+    </button>
+  `;
+}
+
+function petSuite(pet, weekItems, allItems, user) {
+  const records = state.vetRecords.filter((record) => record.petId === pet.id);
+  const vaccines = state.vaccines.filter((item) => item.petId === pet.id);
+  const current = weekItems[0] || allItems[0];
+  return `
+    <div class="suite-hero">
+      <div class="pet-bubble large">${petInitials(pet.name)}</div>
+      <div>
+        <span class="badge ${current?.status === "confirmado" ? "blue" : "gold"}">${current?.status || "sem agenda"}</span>
+        <h3>${pet.name}</h3>
+        <p>${pet.breed || "Sem raca"} - ${ownerName(pet.ownerId)}</p>
+      </div>
+    </div>
+    <dl class="suite-facts">
+      <dt>Idade</dt><dd>${pet.age || "-"}</dd>
+      <dt>Peso</dt><dd>${pet.weight || "-"}</dd>
+      <dt>Temperamento</dt><dd>${pet.temperament || "-"}</dd>
+      <dt>Alergias</dt><dd>${pet.allergies || "-"}</dd>
+      <dt>Alimentacao</dt><dd>${pet.food || "-"}</dd>
+    </dl>
+    <div class="suite-section">
+      <h4>Agenda da semana</h4>
+      <div class="timeline">
+        ${weekItems.map((item) => `
+          <div class="timeline-item">
+            <span>${shortDate(item.start)}<br>${item.time}</span>
+            <div><strong>${serviceLabel(item.service)}</strong><small>${item.packageName || item.notes || "Sem observacao"} - ${currency(item.price)}</small></div>
+            ${statusBadge(item.status)}
+          </div>
+        `).join("") || emptySmall("Sem eventos nesta semana.")}
+      </div>
+    </div>
+    <div class="suite-section">
+      <h4>Cuidados inteligentes</h4>
+      <div class="care-chips">
+        <span>${records.length} obs. saude</span>
+        <span>${vaccines.length} vacina(s)</span>
+        <span>${allItems.length} visita(s)</span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn secondary" data-modal="vet" data-pet="${pet.id}">Obs. vet</button>
+      <button class="btn secondary" data-modal="vaccine" data-pet="${pet.id}">Vacina</button>
+    </div>
   `;
 }
 
@@ -869,6 +1028,13 @@ function bindApp(user) {
 
   document.querySelectorAll("[data-modal]").forEach((button) => {
     button.addEventListener("click", () => openModal(button.dataset.modal, { petId: button.dataset.pet, service: button.dataset.service }));
+  });
+
+  document.querySelectorAll("[data-select-pet]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedPetId = button.dataset.selectPet;
+      render();
+    });
   });
 
   document.querySelectorAll("[data-appointment-action]").forEach((button) => {
