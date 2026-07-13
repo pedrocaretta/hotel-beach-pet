@@ -40,7 +40,7 @@ let toastTimer = null;
 let selectedPetId = null;
 
 const roleViews = {
-  admin: ["dashboard", "appointments", "grooming", "clinic", "pets"],
+  admin: ["dashboard", "clinic", "pets"],
   cliente: ["appointments", "grooming", "pets", "vaccines"]
 };
 
@@ -207,6 +207,10 @@ function groomingAppointments() {
   return state.appointments.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service));
 }
 
+function hotelAdminAppointments() {
+  return state.appointments.filter((item) => !["banho", "tosa", "banho_tosa"].includes(item.service));
+}
+
 function clinicAppointments() {
   return state.appointments.filter((item) => item.service === "veterinario");
 }
@@ -217,6 +221,11 @@ function appointmentRevenue(items) {
 
 function dateOnly(value) {
   return new Date(`${value}T00:00:00Z`);
+}
+
+function todayDate() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
 }
 
 function weekRange() {
@@ -243,6 +252,48 @@ function petAppointments(petId) {
 
 function weekAppointments() {
   return state.appointments.filter(isAppointmentInWeek).sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`));
+}
+
+function hotelAppointments() {
+  return state.appointments
+    .filter((item) => item.service === "hotel")
+    .sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`));
+}
+
+function currentHotelStay(petId) {
+  const today = todayDate();
+  return hotelAppointments().find((item) => {
+    if (item.petId !== petId || item.status === "recusado") return false;
+    return dateOnly(item.start) <= today && dateOnly(item.end || item.start) >= today;
+  });
+}
+
+function nextHotelStay(petId) {
+  const today = todayDate();
+  return hotelAppointments().find((item) => item.petId === petId && item.status !== "recusado" && dateOnly(item.start) > today);
+}
+
+function lastHotelStay(petId) {
+  const today = todayDate();
+  return [...hotelAppointments()].reverse().find((item) => item.petId === petId && dateOnly(item.end || item.start) < today);
+}
+
+function hotelStayStatus(petId) {
+  const current = currentHotelStay(petId);
+  if (current) return { label: "hospedado", tone: "blue", stay: current };
+  const next = nextHotelStay(petId);
+  if (next) return { label: "vai chegar", tone: "gold", stay: next };
+  const last = lastHotelStay(petId);
+  if (last) return { label: "saiu", tone: "red", stay: last };
+  return { label: "sem hospedagem", tone: "", stay: null };
+}
+
+function hotelAppointmentStatus(item) {
+  if (!item || item.status === "recusado") return { label: item?.status || "sem hospedagem", tone: "red" };
+  const today = todayDate();
+  if (dateOnly(item.start) <= today && dateOnly(item.end || item.start) >= today) return { label: "hospedado", tone: "blue" };
+  if (dateOnly(item.start) > today) return { label: "vai chegar", tone: "gold" };
+  return { label: "saiu", tone: "red" };
 }
 
 function petInitials(name) {
@@ -302,7 +353,7 @@ function authTemplate(mode = "login") {
         <div class="brand-badge"><span class="paw-mark">HB</span> Hotel Beach Pet</div>
         <div class="auth-copy">
           <h1>Gestao interna do hotel pet.</h1>
-          <p>Controle os caes hospedados, pedidos, banho e tosa, saude, vacinas e internacoes em uma operacao simples para a equipe.</p>
+          <p>Controle os caes hospedados, observacoes, saude, vacinas e internacoes em uma operacao simples para a equipe.</p>
         </div>
       </section>
       <section class="auth-panel">
@@ -349,10 +400,10 @@ function appTemplate(user) {
         <div class="side-logo"><span class="paw-mark">HB</span><span>Hotel Beach Pet</span></div>
         <nav class="nav">
           ${user.role === "admin" ? navButton("dashboard", "Painel") : ""}
-          ${navButton("appointments", user.role === "admin" ? "Agendamentos" : "Agendar")}
-          ${navButton("grooming", "Banho e Tosa")}
+          ${user.role === "admin" ? "" : navButton("appointments", "Agendar")}
+          ${user.role === "admin" ? "" : navButton("grooming", "Banho e Tosa")}
           ${user.role === "admin" ? navButton("clinic", "Saude") : ""}
-          ${navButton("pets", user.role === "admin" ? "Caes" : "Meus caes")}
+          ${navButton("pets", user.role === "admin" ? "Hotel" : "Meus caes")}
           ${user.role === "admin" ? "" : navButton("vaccines", "Carteira de vacina")}
         </nav>
         <div class="side-footer">
@@ -392,8 +443,7 @@ function viewTemplate(user) {
 }
 
 function dashboardTemplate(user) {
-  const appointments = appointmentsForUser(user);
-  const grooming = groomingAppointments();
+  const appointments = user.role === "admin" ? hotelAdminAppointments() : appointmentsForUser(user);
   const clinic = clinicAppointments();
   const week = weekAppointments();
   const weekPets = [...new Set(week.map((item) => item.petId))].length;
@@ -409,16 +459,16 @@ function dashboardTemplate(user) {
     <div class="section-title">
       <div>
         <h2>Painel de operacao</h2>
-        <p class="subtitle">O essencial para gerir hotel, banho e tosa, saude e rotina dos caes.</p>
+        <p class="subtitle">O essencial para gerir chegadas do hotel, rotina dos caes e cuidados de saude.</p>
       </div>
       <div class="actions inline-actions">
-        <button class="btn" data-view="appointments">Ver pedidos</button>
-        <button class="btn secondary" data-view="pets">Hotel da semana</button>
+        <button class="btn" data-view="pets">Ver hotel</button>
+        <button class="btn secondary" data-modal="appointment">Nova hospedagem</button>
       </div>
     </div>
     <section class="stats">
       ${statCard("Pedidos pendentes", pending.length, "rgba(232, 185, 73, .2)")}
-      ${statCard("Caes esta semana", weekPets, "rgba(244, 127, 107, .18)")}
+      ${statCard("Caes no hotel", weekPets, "rgba(244, 127, 107, .18)")}
       ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
       ${statCard("Internacoes", hospitalized, "rgba(228, 87, 99, .16)")}
     </section>
@@ -426,7 +476,7 @@ function dashboardTemplate(user) {
       <div class="panel priority-panel">
         <div class="panel-head">
           <h3>Pedidos para aceitar</h3>
-          <button class="btn secondary" data-view="appointments">Abrir fila</button>
+          <button class="btn secondary" data-view="pets">Abrir hotel</button>
         </div>
         <div class="list">${pending.slice(0, 4).map((item) => `
           <div class="decision-item">
@@ -444,12 +494,11 @@ function dashboardTemplate(user) {
       </div>
       <div class="panel">
         <div class="panel-head">
-          <h3>Servicos em movimento</h3>
-          <button class="btn secondary" data-view="grooming">Banho e tosa</button>
+          <h3>Rotina em movimento</h3>
+          <button class="btn secondary" data-view="pets">Hotel</button>
         </div>
         <div class="list">
           ${procedureRow("Hotel", appointments.filter((item) => item.service === "hotel").length, "gold")}
-          ${procedureRow("Banho e tosa", grooming.length, "blue")}
           ${procedureRow("Saude", clinic.length, "red")}
         </div>
       </div>
@@ -468,8 +517,7 @@ function dashboardTemplate(user) {
         </div>
         <div class="quick-actions">
           <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>
-          <button class="quick-action" data-modal="appointment"><strong>Hospedagem</strong><span>Criar agenda de hotel</span></button>
-          <button class="quick-action" data-modal="grooming"><strong>Banho/tosa</strong><span>Lancar servico da equipe</span></button>
+          <button class="quick-action" data-modal="appointment"><strong>Hospedagem</strong><span>Cadastrar chegada</span></button>
           <button class="quick-action" data-modal="hospitalization"><strong>Internacao</strong><span>Remedio, horario e cuidado</span></button>
         </div>
       </div>
@@ -735,7 +783,7 @@ function petsTemplate(user) {
 }
 
 function petHotelTemplate(user) {
-  const appointments = filterItems(weekAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
+  const appointments = filterItems(weekAppointments().filter((item) => !["banho", "tosa", "banho_tosa"].includes(item.service)), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
   const petIds = [...new Set(appointments.map((item) => item.petId))];
   const scheduledPets = petIds.map((id) => state.pets.find((pet) => pet.id === id)).filter(Boolean);
   const unscheduledPets = filterItems(state.pets.filter((pet) => !petIds.includes(pet.id)), (pet) => `${pet.name} ${pet.breed} ${ownerName(pet.ownerId)} ${pet.temperament} ${pet.allergies}`);
@@ -744,24 +792,28 @@ function petHotelTemplate(user) {
   selectedPetId = selectedPet?.id || null;
   const selectedAppointments = selectedPet ? petAppointments(selectedPet.id) : [];
   const weekSelected = selectedAppointments.filter(isAppointmentInWeek);
-  const hotelCount = appointments.filter((item) => item.service === "hotel").length;
-  const groomingCount = appointments.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service)).length;
+  const activeStays = state.pets.filter((pet) => currentHotelStay(pet.id)).length;
+  const arrivingStays = state.pets.filter((pet) => nextHotelStay(pet.id)).length;
+  const leftStays = state.pets.filter((pet) => hotelStayStatus(pet.id).label === "saiu").length;
   const confirmed = appointments.filter((item) => item.status === "confirmado").length;
   const { start, end } = weekRange();
 
   return `
     <div class="section-title">
       <div>
-        <h2>Hotel da semana</h2>
-        <p class="subtitle">Todos os caes cadastrados, com destaque para reservas e servicos entre ${shortDate(start.toISOString().slice(0, 10))} e ${shortDate(end.toISOString().slice(0, 10))}. Clique em um cachorro para abrir o quarto.</p>
+        <h2>Hotel e caes</h2>
+        <p class="subtitle">Cadastre os caes, veja quem chega entre ${shortDate(start.toISOString().slice(0, 10))} e ${shortDate(end.toISOString().slice(0, 10))}, e deixe as observacoes sempre visiveis.</p>
       </div>
-      <button class="btn" data-modal="pet">Novo cao</button>
+      <div class="actions inline-actions">
+        <button class="btn" data-modal="appointment">Nova hospedagem</button>
+        <button class="btn secondary" data-modal="pet">Novo cao</button>
+      </div>
     </div>
     <section class="stats compact">
       ${statCard("Caes cadastrados", state.pets.length, "rgba(244, 127, 107, .18)")}
-      ${statCard("Hospedagens", hotelCount, "rgba(41, 188, 135, .16)")}
-      ${statCard("Banho e tosa", groomingCount, "rgba(232, 185, 73, .2)")}
-      ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
+      ${statCard("No hotel hoje", activeStays, "rgba(41, 188, 135, .16)")}
+      ${statCard("Proximas chegadas", arrivingStays, "rgba(79, 141, 247, .16)")}
+      ${statCard("Ja sairam", leftStays, "rgba(232, 185, 73, .2)")}
     </section>
     <section class="hotel-board">
       <div class="kennel-map">
@@ -775,7 +827,8 @@ function petHotelTemplate(user) {
 }
 
 function hotelPetCard(pet, appointments, index) {
-  const next = appointments[0];
+  const hotelStatus = hotelStayStatus(pet.id);
+  const next = hotelStatus.stay || appointments[0];
   const isActive = selectedPetId === pet.id;
   const tones = ["room-aqua", "room-coral", "room-gold", "room-blue"];
   return `
@@ -784,8 +837,8 @@ function hotelPetCard(pet, appointments, index) {
       <span class="pet-bubble">${petInitials(pet.name)}</span>
       <strong>${pet.name}</strong>
       <span>${pet.breed || "Sem raca"} - ${ownerName(pet.ownerId)}</span>
-      <small>${next ? `${serviceLabel(next.service)} em ${shortDate(next.start)} as ${next.time}` : "Sem agenda na semana"}</small>
-      <span class="badge ${next?.status === "confirmado" ? "blue" : "gold"}">${next?.status || "livre"}</span>
+      <small>${next ? `${shortDate(next.start)} ate ${shortDate(next.end || next.start)} - ${next.time}` : "Sem hospedagem cadastrada"}</small>
+      <span class="badge ${hotelStatus.tone}">${hotelStatus.label}</span>
     </button>
   `;
 }
@@ -793,12 +846,14 @@ function hotelPetCard(pet, appointments, index) {
 function petSuite(pet, weekItems, allItems, user) {
   const records = state.vetRecords.filter((record) => record.petId === pet.id);
   const vaccines = state.vaccines.filter((item) => item.petId === pet.id);
-  const current = weekItems[0] || allItems[0];
+  const hotelStatus = hotelStayStatus(pet.id);
+  const current = hotelStatus.stay || weekItems[0] || allItems[0];
+  const stays = hotelAppointments().filter((item) => item.petId === pet.id);
   return `
     <div class="suite-hero">
       <div class="pet-bubble large">${petInitials(pet.name)}</div>
       <div>
-        <span class="badge ${current?.status === "confirmado" ? "blue" : "gold"}">${current?.status || "sem agenda"}</span>
+        <span class="badge ${hotelStatus.tone}">${hotelStatus.label}</span>
         <h3>${pet.name}</h3>
         <p>${pet.breed || "Sem raca"} - ${ownerName(pet.ownerId)}</p>
       </div>
@@ -811,15 +866,18 @@ function petSuite(pet, weekItems, allItems, user) {
       <dt>Alimentacao</dt><dd>${pet.food || "-"}</dd>
     </dl>
     <div class="suite-section">
-      <h4>Agenda da semana</h4>
+      <h4>Hospedagens</h4>
       <div class="timeline">
-        ${weekItems.map((item) => `
+        ${stays.map((item) => {
+          const itemStatus = hotelAppointmentStatus(item);
+          return `
           <div class="timeline-item">
-            <span>${shortDate(item.start)}<br>${item.time}</span>
-            <div><strong>${serviceLabel(item.service)}</strong><small>${item.packageName || item.notes || "Sem observacao"}</small></div>
-            ${statusBadge(item.status)}
+            <span>${shortDate(item.start)}<br>${shortDate(item.end || item.start)}</span>
+            <div><strong>${item.time || "09:00"} - ${itemStatus.label}</strong><small>${item.notes || "Sem observacao"}</small></div>
+            <button class="btn secondary" data-edit-appointment="${item.id}">Editar</button>
           </div>
-        `).join("") || emptySmall("Sem eventos nesta semana.")}
+        `;
+        }).join("") || emptySmall("Sem hospedagem cadastrada.")}
       </div>
     </div>
     <div class="suite-section">
@@ -832,7 +890,7 @@ function petSuite(pet, weekItems, allItems, user) {
     </div>
     <div class="actions">
       <button class="btn secondary" data-modal="appointment" data-pet="${pet.id}">Hospedagem</button>
-      <button class="btn secondary" data-modal="grooming" data-pet="${pet.id}">Banho/tosa</button>
+      <button class="btn secondary" data-edit-pet="${pet.id}">Editar cao</button>
       <button class="btn secondary" data-modal="hospitalization" data-pet="${pet.id}">Internacao</button>
       <button class="btn secondary" data-modal="vet" data-pet="${pet.id}">Obs. vet</button>
       <button class="btn secondary" data-modal="vaccine" data-pet="${pet.id}">Vacina</button>
@@ -983,6 +1041,14 @@ function bindApp(user) {
     });
   });
 
+  document.querySelectorAll("[data-edit-pet]").forEach((button) => {
+    button.addEventListener("click", () => openModal("pet", { editId: button.dataset.editPet }));
+  });
+
+  document.querySelectorAll("[data-edit-appointment]").forEach((button) => {
+    button.addEventListener("click", () => openModal("appointment", { editId: button.dataset.editAppointment }));
+  });
+
   document.querySelectorAll("[data-appointment-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const item = state.appointments.find((appointment) => appointment.id === button.dataset.id);
@@ -1033,6 +1099,8 @@ function closeModal() {
 
 function modalTemplate(type, payload, user) {
   const titles = { appointment: "Novo agendamento", grooming: "Novo banho/tosa", clinic: "Nova ficha clinica", hospitalization: "Internacao", pet: "Novo cao", vet: "Observacao veterinaria", vaccine: "Carteira de vacina", user: "Novo usuario" };
+  if (payload.editId && type === "appointment") titles.appointment = "Editar hospedagem";
+  if (payload.editId && type === "pet") titles.pet = "Editar cao";
   return `
     <div class="modal-backdrop">
       <section class="modal">
@@ -1054,15 +1122,11 @@ function ownerOptions(selected) {
   return state.users.filter((user) => user.role === "cliente").map((user) => `<option value="${user.id}" ${selected === user.id ? "selected" : ""}>${user.name}</option>`).join("");
 }
 
-function serviceOptions(user) {
-  const services = [
-    ["hotel", "Hotel"],
-    ["banho", "Banho"],
-    ["tosa", "Tosa"],
-    ["banho_tosa", "Banho e tosa"]
-  ];
-  if (user.role === "admin") services.push(["veterinario", "Veterinario"]);
-  return services.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+function serviceOptions(user, selected = "hotel") {
+  const services = user.role === "admin"
+    ? [["hotel", "Hotel"], ["veterinario", "Veterinario"]]
+    : [["hotel", "Hotel"], ["banho", "Banho"], ["tosa", "Tosa"], ["banho_tosa", "Banho e tosa"]];
+  return services.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function modalForm(type, payload, user) {
@@ -1161,7 +1225,10 @@ function modalForm(type, payload, user) {
   }
 
   if (type === "appointment") {
-    const pets = petOptions(user, payload.petId);
+    const editing = state.appointments.find((item) => item.id === payload.editId);
+    const pets = petOptions(user, editing?.petId || payload.petId);
+    const selectedService = editing?.service || "hotel";
+    const selectedDogSize = (editing?.addons || "").includes("grande") ? "grande" : "pequeno";
     if (!pets) {
       return `
         <div class="empty compact-empty">
@@ -1174,44 +1241,46 @@ function modalForm(type, payload, user) {
       <form class="form-grid" id="modal-form">
         <label class="field"><span>Pet</span><select name="petId" required>${pets}</select></label>
         <div class="row">
-          <label class="field"><span>Servico</span><select name="service">${serviceOptions(user)}</select></label>
-          <label class="field"><span>Horario</span><input name="time" type="time" value="09:00" required></label>
+          <label class="field"><span>Servico</span><select name="service">${serviceOptions(user, selectedService)}</select></label>
+          <label class="field"><span>Horario</span><input name="time" type="time" value="${editing?.time || "09:00"}" required></label>
         </div>
         <div class="row">
-          <label class="field"><span>Entrada ou data</span><input name="start" type="date" required></label>
-          <label class="field"><span>Saida do hotel</span><input name="end" type="date"></label>
+          <label class="field"><span>Entrada</span><input name="start" type="date" value="${editing?.start || ""}" required></label>
+          <label class="field"><span>Saida</span><input name="end" type="date" value="${editing?.end || editing?.start || ""}" required></label>
         </div>
-        <label class="field"><span>Porte do cao</span><select name="dogSize"><option value="pequeno">Porte pequeno</option><option value="grande">Porte grande</option></select></label>
-        ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado">Agendado</option><option value="confirmado">Confirmado</option><option value="atendido">Atendido</option></select></label>` : ""}
-        <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, banho junto com hospedagem"></textarea></label>
-        <button class="btn" type="submit">${user.role === "admin" ? "Salvar agendamento" : "Enviar pedido de agendamento"}</button>
+        <label class="field"><span>Porte do cao</span><select name="dogSize"><option value="pequeno" ${selectedDogSize === "pequeno" ? "selected" : ""}>Porte pequeno</option><option value="grande" ${selectedDogSize === "grande" ? "selected" : ""}>Porte grande</option></select></label>
+        ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado" ${editing?.status === "agendado" ? "selected" : ""}>Agendado</option><option value="confirmado" ${!editing || editing.status === "confirmado" ? "selected" : ""}>Confirmado</option><option value="atendido" ${editing?.status === "atendido" ? "selected" : ""}>Atendido</option></select></label>` : ""}
+        <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, cuidado na entrada">${editing?.feedback || editing?.notes || ""}</textarea></label>
+        <button class="btn" type="submit">${payload.editId ? "Salvar alteracoes" : user.role === "admin" ? "Salvar hospedagem" : "Enviar pedido de agendamento"}</button>
       </form>
     `;
   }
 
   if (type === "pet") {
+    const editing = state.pets.find((item) => item.id === payload.editId);
+    const owner = state.users.find((item) => item.id === editing?.ownerId);
     return `
       <form class="form-grid" id="modal-form">
         ${user.role === "admin" ? `
-          <label class="field"><span>Tutor ja cadastrado</span><select name="ownerId"><option value="">Criar novo tutor</option>${ownerOptions("")}</select></label>
+          <label class="field"><span>Tutor ja cadastrado</span><select name="ownerId"><option value="">Criar novo tutor</option>${ownerOptions(editing?.ownerId || "")}</select></label>
           <div class="row">
-            <label class="field"><span>Nome do tutor</span><input name="ownerName" placeholder="Responsavel pelo cao"></label>
-            <label class="field"><span>Telefone do tutor</span><input name="ownerPhone" placeholder="(00) 00000-0000"></label>
+            <label class="field"><span>Nome do tutor</span><input name="ownerName" value="${owner?.name || ""}" placeholder="Responsavel pelo cao"></label>
+            <label class="field"><span>Telefone do tutor</span><input name="ownerPhone" value="${owner?.phone || ""}" placeholder="(00) 00000-0000"></label>
           </div>
-          <label class="field"><span>Email do tutor</span><input name="ownerEmail" type="email" placeholder="Opcional"></label>
+          <label class="field"><span>Email do tutor</span><input name="ownerEmail" type="email" value="${owner?.email?.includes("@hotelbeachpet.local") ? "" : owner?.email || ""}" placeholder="Opcional"></label>
         ` : ""}
         <div class="row">
-          <label class="field"><span>Nome do cao</span><input name="name" required></label>
-          <label class="field"><span>Raca</span><input name="breed"></label>
+          <label class="field"><span>Nome do cao</span><input name="name" value="${editing?.name || ""}" required></label>
+          <label class="field"><span>Raca</span><input name="breed" value="${editing?.breed || ""}"></label>
         </div>
         <div class="row">
-          <label class="field"><span>Idade</span><input name="age" placeholder="Ex: 3 anos"></label>
-          <label class="field"><span>Peso</span><input name="weight" placeholder="Ex: 12 kg"></label>
+          <label class="field"><span>Idade</span><input name="age" value="${editing?.age || ""}" placeholder="Ex: 3 anos"></label>
+          <label class="field"><span>Peso</span><input name="weight" value="${editing?.weight || ""}" placeholder="Ex: 12 kg"></label>
         </div>
-        <label class="field"><span>Temperamento</span><input name="temperament" placeholder="Calmo, agitado, medroso..."></label>
-        <label class="field"><span>Alergias</span><input name="allergies"></label>
-        <label class="field"><span>Alimentacao</span><textarea name="food"></textarea></label>
-        <button class="btn" type="submit">Cadastrar cao</button>
+        <label class="field"><span>Temperamento</span><input name="temperament" value="${editing?.temperament || ""}" placeholder="Calmo, agitado, medroso..."></label>
+        <label class="field"><span>Alergias</span><input name="allergies" value="${editing?.allergies || ""}"></label>
+        <label class="field"><span>Alimentacao</span><textarea name="food">${editing?.food || ""}</textarea></label>
+        <button class="btn" type="submit">${payload.editId ? "Salvar alteracoes" : "Cadastrar cao"}</button>
       </form>
     `;
   }
@@ -1386,8 +1455,9 @@ function bindModal(type, payload, user) {
       const pet = state.pets.find((item) => item.id === data.petId);
       const price = data.service === "veterinario" ? 0 : appointmentPrice(data.service, data.start, data.end || data.start, data.dogSize);
       const dogSizeNote = data.service === "hotel" ? `Porte ${data.dogSize}. ${daysBetween(data.start, data.end || data.start)} diaria(s).` : "";
-      state.appointments.push({
-        id: uid("a"),
+      const existing = state.appointments.find((item) => item.id === payload.editId);
+      const appointmentData = {
+        id: existing?.id || uid("a"),
         petId: data.petId,
         ownerId: pet.ownerId,
         service: data.service,
@@ -1403,11 +1473,18 @@ function bindModal(type, payload, user) {
         addons: dogSizeNote,
         commission: 0,
         feedback: data.notes
-      });
-      toast("Agendamento salvo.");
+      };
+      if (existing) {
+        Object.assign(existing, appointmentData);
+        toast("Hospedagem atualizada.");
+      } else {
+        state.appointments.push(appointmentData);
+        toast("Hospedagem salva.");
+      }
     }
 
     if (type === "pet") {
+      const existingPet = state.pets.find((item) => item.id === payload.editId);
       let ownerId = data.ownerId || user.id;
       if (user.role === "admin" && !data.ownerId) {
         const ownerEmail = data.ownerEmail?.trim();
@@ -1426,8 +1503,14 @@ function bindModal(type, payload, user) {
           });
         }
       }
-      state.pets.push({
-        id: uid("p"),
+      const owner = state.users.find((item) => item.id === ownerId);
+      if (owner && user.role === "admin") {
+        owner.name = data.ownerName || owner.name;
+        owner.phone = data.ownerPhone || owner.phone;
+        if (data.ownerEmail) owner.email = data.ownerEmail;
+      }
+      const petData = {
+        id: existingPet?.id || uid("p"),
         ownerId,
         name: data.name,
         breed: data.breed,
@@ -1436,8 +1519,14 @@ function bindModal(type, payload, user) {
         temperament: data.temperament,
         allergies: data.allergies,
         food: data.food
-      });
-      toast("Cao cadastrado.");
+      };
+      if (existingPet) {
+        Object.assign(existingPet, petData);
+        toast("Cao atualizado.");
+      } else {
+        state.pets.push(petData);
+        toast("Cao cadastrado.");
+      }
     }
 
     if (type === "vet") {
