@@ -40,7 +40,7 @@ let toastTimer = null;
 let selectedPetId = null;
 
 const roleViews = {
-  admin: ["dashboard", "appointments", "grooming", "pricing", "clinic", "pets", "users"],
+  admin: ["dashboard", "appointments", "grooming", "clinic", "pets"],
   cliente: ["appointments", "grooming", "pets", "vaccines"]
 };
 
@@ -351,11 +351,9 @@ function appTemplate(user) {
           ${user.role === "admin" ? navButton("dashboard", "Painel") : ""}
           ${navButton("appointments", user.role === "admin" ? "Agendamentos" : "Agendar")}
           ${navButton("grooming", "Banho e Tosa")}
-          ${user.role === "admin" ? navButton("pricing", "Valores") : ""}
           ${user.role === "admin" ? navButton("clinic", "Saude") : ""}
           ${navButton("pets", user.role === "admin" ? "Caes" : "Meus caes")}
           ${user.role === "admin" ? "" : navButton("vaccines", "Carteira de vacina")}
-          ${user.role === "admin" ? navButton("users", "Usuarios") : ""}
         </nav>
         <div class="side-footer">
           <div class="user-mini"><strong>${user.name}</strong><br>${user.role === "admin" ? "Administrador" : "Tutor"}</div>
@@ -385,12 +383,10 @@ function viewTemplate(user) {
     dashboard: dashboardTemplate,
     appointments: appointmentsTemplate,
     grooming: groomingTemplate,
-    pricing: pricingTemplate,
     clinic: clinicTemplate,
     pets: petsTemplate,
     vet: vetTemplate,
-    vaccines: vaccinesTemplate,
-    users: usersTemplate
+    vaccines: vaccinesTemplate
   };
   return (templates[view] || dashboardTemplate)(user);
 }
@@ -404,7 +400,7 @@ function dashboardTemplate(user) {
   const pending = appointments.filter((item) => item.status === "agendado");
   const confirmed = appointments.filter((item) => item.status === "confirmado").length;
   const upcoming = [...appointments].filter((item) => item.status !== "recusado").sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`)).slice(0, 5);
-  const revenue = appointmentRevenue(appointments);
+  const hospitalized = state.vetRecords.filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim")).length;
   const vaccineLimit = new Date();
   vaccineLimit.setMonth(vaccineLimit.getMonth() + 6);
   const vaccineAlerts = state.vaccines.filter((item) => item.expires && new Date(`${item.expires}T00:00:00Z`) <= vaccineLimit).slice(0, 4);
@@ -413,7 +409,7 @@ function dashboardTemplate(user) {
     <div class="section-title">
       <div>
         <h2>Painel de operacao</h2>
-        <p class="subtitle">O essencial para decidir rapido: pedidos, caes da semana, horarios e alertas.</p>
+        <p class="subtitle">O essencial para gerir hotel, banho e tosa, saude e rotina dos caes.</p>
       </div>
       <div class="actions inline-actions">
         <button class="btn" data-view="appointments">Ver pedidos</button>
@@ -424,7 +420,7 @@ function dashboardTemplate(user) {
       ${statCard("Pedidos pendentes", pending.length, "rgba(232, 185, 73, .2)")}
       ${statCard("Caes esta semana", weekPets, "rgba(244, 127, 107, .18)")}
       ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
-      ${statCard("Faturamento previsto", currency(revenue), "rgba(79, 141, 247, .16)", "total")}
+      ${statCard("Internacoes", hospitalized, "rgba(228, 87, 99, .16)")}
     </section>
     <section class="ops-grid">
       <div class="panel priority-panel">
@@ -434,7 +430,7 @@ function dashboardTemplate(user) {
         </div>
         <div class="list">${pending.slice(0, 4).map((item) => `
           <div class="decision-item">
-            <div><strong>${petName(item.petId)} - ${serviceLabel(item.service)}</strong><span>${ownerName(item.ownerId)} - ${formatDate(item.start)} ${item.time} - ${currency(item.price || priceForService(item.service))}</span></div>
+            <div><strong>${petName(item.petId)} - ${serviceLabel(item.service)}</strong><span>${ownerName(item.ownerId)} - ${formatDate(item.start)} ${item.time}</span></div>
             <div class="table-actions"><button class="btn secondary" data-appointment-action="confirmado" data-id="${item.id}">Aceitar</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.id}">Recusar</button></div>
           </div>
         `).join("") || emptySmall("Nenhum pedido aguardando aceite.")}</div>
@@ -466,10 +462,16 @@ function dashboardTemplate(user) {
           <div class="list-item"><div><strong>${petName(item.petId)} - ${item.name}</strong><span>Validade: ${formatDate(item.expires)}</span></div><span class="badge gold">vacina</span></div>
         `).join("") || emptySmall("Nenhum alerta de vacina proximo.")}</div>
       </div>
-      <div class="quick-actions">
-        <button class="quick-action" data-view="pricing"><strong>Valores</strong><span>Atualizar diaria e servicos</span></button>
-        <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>
-        <button class="quick-action" data-view="users"><strong>Usuarios</strong><span>Logins de tutores</span></button>
+      <div class="panel operations-panel">
+        <div class="panel-head">
+          <h3>Atalhos da operacao</h3>
+        </div>
+        <div class="quick-actions">
+          <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>
+          <button class="quick-action" data-modal="appointment"><strong>Hospedagem</strong><span>Criar agenda de hotel</span></button>
+          <button class="quick-action" data-modal="grooming"><strong>Banho/tosa</strong><span>Lancar servico da equipe</span></button>
+          <button class="quick-action" data-modal="hospitalization"><strong>Internacao</strong><span>Remedio, horario e cuidado</span></button>
+        </div>
       </div>
     </section>
   `;
@@ -494,15 +496,15 @@ function appointmentsTemplate(user) {
   const rejected = items.filter((item) => item.status === "recusado").length;
   const hotel = items.filter((item) => item.service === "hotel").length;
   const grooming = items.filter((item) => ["banho", "tosa", "banho_tosa"].includes(item.service)).length;
-  const emptyColspan = user.role === "admin" ? 8 : 6;
+  const emptyColspan = user.role === "admin" ? 7 : 5;
 
   return `
     <div class="section-title">
       <div>
         <h2>${user.role === "admin" ? "Pedidos de agendamento" : "Agendar meu cachorro"}</h2>
-        <p class="subtitle">${user.role === "admin" ? "Aceite ou recuse os pedidos enviados pelos clientes. Os valores sao definidos na aba Valores." : "Escolha o cachorro, a data e contrate hotel, banho ou tosa."}</p>
+        <p class="subtitle">${user.role === "admin" ? "Crie reservas, aceite pedidos e acompanhe cada servico do hotel." : "Escolha o cachorro, a data e contrate hotel, banho ou tosa."}</p>
       </div>
-      ${user.role === "admin" ? "" : `<button class="btn" data-modal="appointment">Novo agendamento</button>`}
+      <button class="btn" data-modal="appointment">Novo agendamento</button>
     </div>
     <section class="stats compact">
       ${statCard(user.role === "admin" ? "Aguardando confirmacao" : "Pedidos enviados", pending, "rgba(232, 185, 73, .2)")}
@@ -512,7 +514,7 @@ function appointmentsTemplate(user) {
     </section>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Pet</th>${user.role === "admin" ? "<th>Tutor</th>" : ""}<th>Servico</th><th>Data</th><th>Status</th><th>Valor</th><th>Observacao</th>${user.role === "admin" ? "<th>Acoes</th>" : ""}</tr></thead>
+        <thead><tr><th>Pet</th>${user.role === "admin" ? "<th>Tutor</th>" : ""}<th>Servico</th><th>Data</th><th>Status</th><th>Observacao</th>${user.role === "admin" ? "<th>Acoes</th>" : ""}</tr></thead>
         <tbody>${items.map((item) => `
           <tr>
             <td><strong>${petName(item.petId)}</strong></td>
@@ -520,7 +522,6 @@ function appointmentsTemplate(user) {
             <td>${serviceLabel(item.service)}</td>
             <td>${formatDate(item.start)} ${item.end !== item.start ? `ate ${formatDate(item.end)}` : ""}<br><span class="meta">${item.time}</span></td>
             <td>${statusBadge(item.status)}</td>
-            <td>${currency(item.price || priceForService(item.service))}</td>
             <td>${item.notes || "-"}</td>
             ${user.role === "admin" ? `<td><div class="table-actions"><button class="btn secondary" data-appointment-action="confirmado" data-id="${item.id}">Aceitar</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.id}">Recusar</button></div></td>` : ""}
           </tr>`).join("") || `<tr><td colspan="${emptyColspan}">${emptySmall(user.role === "admin" ? "Nenhum pedido encontrado." : "Voce ainda nao tem agendamentos.")}</td></tr>`}</tbody>
@@ -544,11 +545,10 @@ function clientGroomingTemplate(user) {
       <div>
         <span class="module-kicker">Servicos para seu cao</span>
         <h3>Banho, tosa ou pacote completo com pedido online.</h3>
-        <p>Os valores abaixo sao definidos pelo administrador. Quando ainda nao houver preco cadastrado, o servico fica como a combinar.</p>
+        <p>O pedido entra direto na rotina da equipe para aceite e acompanhamento.</p>
       </div>
       <div class="module-list">
         <span>Pedido enviado direto para o admin</span>
-        <span>Valor exibido antes de contratar</span>
         <span>Status acompanhado na sua conta</span>
       </div>
     </section>
@@ -557,7 +557,6 @@ function clientGroomingTemplate(user) {
         <article class="service-card">
           <span class="badge gold">${unit}</span>
           <h3>${label}</h3>
-          <strong class="price-tag">${priceLabel(key)}</strong>
           <p class="meta">Agende o melhor horario para seu cachorro.</p>
           <button class="btn" data-modal="grooming" data-service="${key}">Contratar</button>
         </article>
@@ -568,16 +567,15 @@ function clientGroomingTemplate(user) {
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Pet</th><th>Servico</th><th>Data</th><th>Status</th><th>Valor</th><th>Observacao</th></tr></thead>
+        <thead><tr><th>Pet</th><th>Servico</th><th>Data</th><th>Status</th><th>Observacao</th></tr></thead>
         <tbody>${myRequests.map((item) => `
           <tr>
             <td><strong>${petName(item.petId)}</strong></td>
             <td>${serviceLabel(item.service)}</td>
             <td>${formatDate(item.start)}<br><span class="meta">${item.time}</span></td>
             <td>${statusBadge(item.status)}</td>
-            <td>${currency(item.price || priceForService(item.service))}</td>
             <td>${item.notes || "-"}</td>
-          </tr>`).join("") || `<tr><td colspan="6">${emptySmall("Voce ainda nao contratou banho e tosa.")}</td></tr>`}</tbody>
+          </tr>`).join("") || `<tr><td colspan="5">${emptySmall("Voce ainda nao contratou banho e tosa.")}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -587,15 +585,14 @@ function groomingTemplate(user) {
   if (user.role !== "admin") return clientGroomingTemplate(user);
   const items = filterItems(groomingAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.packageName} ${item.addons} ${item.feedback}`);
   const active = items.filter((item) => item.status !== "atendido" && item.status !== "faltou").length;
-  const revenue = appointmentRevenue(items);
-  const commissions = items.reduce((total, item) => total + Number(item.commission || 0), 0);
   const packages = items.filter((item) => item.packageName).length;
+  const finished = items.filter((item) => item.step === "finalizado" || item.status === "atendido").length;
 
   return `
     <div class="section-title">
       <div>
         <h2>Banho e Tosa</h2>
-        <p class="subtitle">Agendamento, pacotes, etapas, adicionais, funcionario, feedback e comissao automatica.</p>
+        <p class="subtitle">Agendamento, pacotes, etapas, adicionais, funcionario e historico do servico.</p>
       </div>
       <button class="btn" data-modal="grooming">Novo banho/tosa</button>
     </div>
@@ -603,24 +600,24 @@ function groomingTemplate(user) {
       <div>
         <span class="module-kicker">Modulo operacional</span>
         <h3>Produtividade real da equipe de banho e tosa.</h3>
-        <p>Controle cada servico desde o agendamento ate a finalizacao, com valores e comissoes visiveis para o administrador.</p>
+        <p>Controle cada servico desde o agendamento ate a finalizacao, com responsavel e historico visiveis para a equipe.</p>
       </div>
       <div class="module-list">
         <span>Agendamento e etapas do servico</span>
         <span>Venda e controle de pacotes</span>
-        <span>Adicionais, funcionario e comissao</span>
+        <span>Adicionais e funcionario responsavel</span>
         <span>Historico com feedback do cliente</span>
       </div>
     </section>
     <section class="stats compact">
       ${statCard("Servicos ativos", active, "rgba(232, 185, 73, .2)")}
       ${statCard("Pacotes vendidos", packages, "rgba(79, 141, 247, .16)")}
-      ${statCard("Faturamento", currency(revenue), "rgba(41, 188, 135, .16)", "total")}
-      ${statCard("Comissoes", currency(commissions), "rgba(244, 127, 107, .18)", "previsto")}
+      ${statCard("Finalizados", finished, "rgba(41, 188, 135, .16)")}
+      ${statCard("Na fila", items.filter((item) => item.status === "agendado").length, "rgba(244, 127, 107, .18)")}
     </section>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Pet</th><th>Pacote</th><th>Data</th><th>Etapa</th><th>Funcionario</th><th>Adicionais</th><th>Valor</th><th>Comissao</th><th>Acoes</th></tr></thead>
+        <thead><tr><th>Pet</th><th>Pacote</th><th>Data</th><th>Etapa</th><th>Funcionario</th><th>Adicionais</th><th>Acoes</th></tr></thead>
         <tbody>${items.map((item) => `
           <tr>
             <td><strong>${petName(item.petId)}</strong><br><span class="meta">${ownerName(item.ownerId)}</span></td>
@@ -629,54 +626,10 @@ function groomingTemplate(user) {
             <td><span class="badge ${item.step === "finalizado" ? "blue" : "gold"}">${item.step || "agendado"}</span></td>
             <td>${item.employee || "-"}</td>
             <td>${item.addons || "-"}</td>
-            <td>${currency(item.price)}</td>
-            <td>${currency(item.commission)}</td>
             <td><button class="btn secondary" data-grooming-step="${item.id}">Proxima etapa</button></td>
-          </tr>`).join("") || `<tr><td colspan="9">${emptySmall("Nenhum servico de banho e tosa cadastrado.")}</td></tr>`}</tbody>
+          </tr>`).join("") || `<tr><td colspan="7">${emptySmall("Nenhum servico de banho e tosa cadastrado.")}</td></tr>`}</tbody>
       </table>
     </div>
-  `;
-}
-
-function pricingTemplate(user) {
-  if (user.role !== "admin") return appointmentsTemplate(user);
-
-  return `
-    <div class="section-title">
-      <div>
-        <h2>Valores</h2>
-        <p class="subtitle">Defina os precos que aparecem para o cliente em hospedagem, banho e tosa.</p>
-      </div>
-    </div>
-    <form class="pricing-form" id="pricing-form">
-      ${pricingItems().map(([key, label, unit]) => `
-        <article class="price-card">
-          <div>
-            <span class="badge">${unit}</span>
-            <h3>${label}</h3>
-            <p class="meta">Valor atual: ${priceLabel(key)}</p>
-          </div>
-          ${key === "hotel" ? `
-            <div class="row price-row">
-              <label class="field">
-                <span>Porte pequeno</span>
-                <input name="hotelSmall" type="number" min="0" step="0.01" value="${state.pricing.hotel?.smallPrice ?? 100}">
-              </label>
-              <label class="field">
-                <span>Porte grande</span>
-                <input name="hotelLarge" type="number" min="0" step="0.01" value="${state.pricing.hotel?.largePrice ?? 120}">
-              </label>
-            </div>
-          ` : `
-            <label class="field">
-              <span>Valor em reais</span>
-              <input name="${key}" type="number" min="0" step="0.01" value="${state.pricing[key]?.price || 0}">
-            </label>
-          `}
-        </article>
-      `).join("")}
-      <button class="btn" type="submit">Salvar valores</button>
-    </form>
   `;
 }
 
@@ -784,7 +737,9 @@ function petsTemplate(user) {
 function petHotelTemplate(user) {
   const appointments = filterItems(weekAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${serviceLabel(item.service)} ${item.status} ${item.notes}`);
   const petIds = [...new Set(appointments.map((item) => item.petId))];
-  const pets = petIds.map((id) => state.pets.find((pet) => pet.id === id)).filter(Boolean);
+  const scheduledPets = petIds.map((id) => state.pets.find((pet) => pet.id === id)).filter(Boolean);
+  const unscheduledPets = filterItems(state.pets.filter((pet) => !petIds.includes(pet.id)), (pet) => `${pet.name} ${pet.breed} ${ownerName(pet.ownerId)} ${pet.temperament} ${pet.allergies}`);
+  const pets = [...scheduledPets, ...unscheduledPets];
   const selectedPet = state.pets.find((pet) => pet.id === selectedPetId) || pets[0] || state.pets[0];
   selectedPetId = selectedPet?.id || null;
   const selectedAppointments = selectedPet ? petAppointments(selectedPet.id) : [];
@@ -798,19 +753,19 @@ function petHotelTemplate(user) {
     <div class="section-title">
       <div>
         <h2>Hotel da semana</h2>
-        <p class="subtitle">Caes com reservas e servicos entre ${shortDate(start.toISOString().slice(0, 10))} e ${shortDate(end.toISOString().slice(0, 10))}. Clique em um cachorro para abrir o quarto.</p>
+        <p class="subtitle">Todos os caes cadastrados, com destaque para reservas e servicos entre ${shortDate(start.toISOString().slice(0, 10))} e ${shortDate(end.toISOString().slice(0, 10))}. Clique em um cachorro para abrir o quarto.</p>
       </div>
       <button class="btn" data-modal="pet">Novo cao</button>
     </div>
     <section class="stats compact">
-      ${statCard("Caes na semana", pets.length, "rgba(244, 127, 107, .18)")}
+      ${statCard("Caes cadastrados", state.pets.length, "rgba(244, 127, 107, .18)")}
       ${statCard("Hospedagens", hotelCount, "rgba(41, 188, 135, .16)")}
       ${statCard("Banho e tosa", groomingCount, "rgba(232, 185, 73, .2)")}
       ${statCard("Confirmados", confirmed, "rgba(79, 141, 247, .16)")}
     </section>
     <section class="hotel-board">
       <div class="kennel-map">
-        ${pets.map((pet, index) => hotelPetCard(pet, appointments.filter((item) => item.petId === pet.id), index)).join("") || emptyBlock("Nenhum cachorro agendado nesta semana.")}
+        ${pets.map((pet, index) => hotelPetCard(pet, appointments.filter((item) => item.petId === pet.id), index)).join("") || emptyBlock("Nenhum cachorro cadastrado ainda.")}
       </div>
       <aside class="pet-suite">
         ${selectedPet ? petSuite(selectedPet, weekSelected, selectedAppointments, user) : emptyBlock("Selecione um cachorro para ver detalhes.")}
@@ -861,7 +816,7 @@ function petSuite(pet, weekItems, allItems, user) {
         ${weekItems.map((item) => `
           <div class="timeline-item">
             <span>${shortDate(item.start)}<br>${item.time}</span>
-            <div><strong>${serviceLabel(item.service)}</strong><small>${item.packageName || item.notes || "Sem observacao"} - ${currency(item.price)}</small></div>
+            <div><strong>${serviceLabel(item.service)}</strong><small>${item.packageName || item.notes || "Sem observacao"}</small></div>
             ${statusBadge(item.status)}
           </div>
         `).join("") || emptySmall("Sem eventos nesta semana.")}
@@ -876,6 +831,9 @@ function petSuite(pet, weekItems, allItems, user) {
       </div>
     </div>
     <div class="actions">
+      <button class="btn secondary" data-modal="appointment" data-pet="${pet.id}">Hospedagem</button>
+      <button class="btn secondary" data-modal="grooming" data-pet="${pet.id}">Banho/tosa</button>
+      <button class="btn secondary" data-modal="hospitalization" data-pet="${pet.id}">Internacao</button>
       <button class="btn secondary" data-modal="vet" data-pet="${pet.id}">Obs. vet</button>
       <button class="btn secondary" data-modal="vaccine" data-pet="${pet.id}">Vacina</button>
     </div>
@@ -945,31 +903,6 @@ function vaccinesTemplate(user) {
             <td>${item.fileName || "Sem anexo"}</td>
             <td><button class="btn secondary" data-delete-vaccine="${item.id}">Remover</button></td>
           </tr>`).join("") || `<tr><td colspan="6">${emptySmall("Nenhuma vacina cadastrada.")}</td></tr>`}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function usersTemplate(user) {
-  if (user.role !== "admin") return dashboardTemplate(user);
-  const users = filterItems(state.users, (item) => `${item.name} ${item.email} ${item.phone} ${item.role}`);
-  return `
-    <div class="section-title">
-      <div><h2>Usuarios</h2><p class="subtitle">Crie logins para tutores e equipe administrativa.</p></div>
-      <button class="btn" data-modal="user">Novo usuario</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Nome</th><th>Email</th><th>Telefone</th><th>Perfil</th><th>Pets</th><th>Acoes</th></tr></thead>
-        <tbody>${users.map((item) => `
-          <tr>
-            <td><strong>${item.name}</strong></td>
-            <td>${item.email}</td>
-            <td>${item.phone || "-"}</td>
-            <td><span class="badge ${item.role === "admin" ? "blue" : ""}">${item.role}</span></td>
-            <td>${state.pets.filter((pet) => pet.ownerId === item.id).length}</td>
-            <td>${item.id !== user.id ? `<button class="btn secondary" data-delete-user="${item.id}">Remover</button>` : ""}</td>
-          </tr>`).join("")}</tbody>
       </table>
     </div>
   `;
@@ -1054,27 +987,9 @@ function bindApp(user) {
     button.addEventListener("click", () => {
       const item = state.appointments.find((appointment) => appointment.id === button.dataset.id);
       item.status = button.dataset.appointmentAction;
-      if (item.status === "confirmado" && !item.price) item.price = priceForService(item.service);
       saveState();
       render();
     });
-  });
-
-  document.getElementById("pricing-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    pricingItems().forEach(([key, label, unit]) => {
-      if (key === "hotel") {
-        const smallPrice = Number(data.hotelSmall || 100);
-        const largePrice = Number(data.hotelLarge || 120);
-        state.pricing[key] = { label, unit, price: smallPrice, smallPrice, largePrice };
-        return;
-      }
-      state.pricing[key] = { label, unit, price: Number(data[key] || 0) };
-    });
-    saveState();
-    toast("Valores salvos.");
-    render();
   });
 
   document.querySelectorAll("[data-grooming-step]").forEach((button) => {
@@ -1096,16 +1011,6 @@ function bindApp(user) {
     });
   });
 
-  document.querySelectorAll("[data-delete-user]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const id = button.dataset.deleteUser;
-      state.users = state.users.filter((item) => item.id !== id);
-      state.pets = state.pets.filter((item) => item.ownerId !== id);
-      state.appointments = state.appointments.filter((item) => item.ownerId !== id);
-      saveState();
-      render();
-    });
-  });
 }
 
 function openModal(type, payload = {}) {
@@ -1157,7 +1062,7 @@ function serviceOptions(user) {
     ["banho_tosa", "Banho e tosa"]
   ];
   if (user.role === "admin") services.push(["veterinario", "Veterinario"]);
-  return services.map(([value, label]) => `<option value="${value}">${label}${value === "veterinario" ? "" : ` - ${priceLabel(value)}`}</option>`).join("");
+  return services.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
 }
 
 function modalForm(type, payload, user) {
@@ -1177,9 +1082,9 @@ function modalForm(type, payload, user) {
         <form class="form-grid" id="modal-form">
           <label class="field"><span>Pet</span><select name="petId" required>${pets}</select></label>
           <label class="field"><span>Servico</span><select name="service">
-            <option value="banho" ${selectedService === "banho" ? "selected" : ""}>Banho - ${priceLabel("banho")}</option>
-            <option value="tosa" ${selectedService === "tosa" ? "selected" : ""}>Tosa - ${priceLabel("tosa")}</option>
-            <option value="banho_tosa" ${selectedService === "banho_tosa" ? "selected" : ""}>Banho e tosa - ${priceLabel("banho_tosa")}</option>
+            <option value="banho" ${selectedService === "banho" ? "selected" : ""}>Banho</option>
+            <option value="tosa" ${selectedService === "tosa" ? "selected" : ""}>Tosa</option>
+            <option value="banho_tosa" ${selectedService === "banho_tosa" ? "selected" : ""}>Banho e tosa</option>
           </select></label>
           <div class="row">
             <label class="field"><span>Data</span><input name="start" type="date" required></label>
@@ -1205,10 +1110,6 @@ function modalForm(type, payload, user) {
         <div class="row">
           <label class="field"><span>Pacote vendido</span><input name="packageName" placeholder="Ex: Banho + tosa bebe"></label>
           <label class="field"><span>Funcionario</span><input name="employee" placeholder="Nome do responsavel"></label>
-        </div>
-        <div class="row">
-          <label class="field"><span>Valor</span><input name="price" type="number" min="0" step="0.01" placeholder="120"></label>
-          <label class="field"><span>Comissao</span><input name="commission" type="number" min="0" step="0.01" placeholder="18"></label>
         </div>
         <label class="field"><span>Adicionais</span><input name="addons" placeholder="Shampoo especial, hidratacao, desembolo..."></label>
         <label class="field"><span>Feedback / historico</span><textarea name="feedback" placeholder="Preferencias do cliente e retorno sobre o servico"></textarea></label>
@@ -1280,7 +1181,7 @@ function modalForm(type, payload, user) {
           <label class="field"><span>Entrada ou data</span><input name="start" type="date" required></label>
           <label class="field"><span>Saida do hotel</span><input name="end" type="date"></label>
         </div>
-        <label class="field"><span>Porte do cao para hospedagem</span><select name="dogSize"><option value="pequeno">Porte pequeno - ${currency(hotelDailyPrice("pequeno"))} a diaria</option><option value="grande">Porte grande - ${currency(hotelDailyPrice("grande"))} a diaria</option></select></label>
+        <label class="field"><span>Porte do cao</span><select name="dogSize"><option value="pequeno">Porte pequeno</option><option value="grande">Porte grande</option></select></label>
         ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado">Agendado</option><option value="confirmado">Confirmado</option><option value="atendido">Atendido</option></select></label>` : ""}
         <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, banho junto com hospedagem"></textarea></label>
         <button class="btn" type="submit">${user.role === "admin" ? "Salvar agendamento" : "Enviar pedido de agendamento"}</button>
@@ -1291,7 +1192,14 @@ function modalForm(type, payload, user) {
   if (type === "pet") {
     return `
       <form class="form-grid" id="modal-form">
-        ${user.role === "admin" ? `<label class="field"><span>Tutor</span><select name="ownerId">${ownerOptions(user.id)}</select></label>` : ""}
+        ${user.role === "admin" ? `
+          <label class="field"><span>Tutor ja cadastrado</span><select name="ownerId"><option value="">Criar novo tutor</option>${ownerOptions("")}</select></label>
+          <div class="row">
+            <label class="field"><span>Nome do tutor</span><input name="ownerName" placeholder="Responsavel pelo cao"></label>
+            <label class="field"><span>Telefone do tutor</span><input name="ownerPhone" placeholder="(00) 00000-0000"></label>
+          </div>
+          <label class="field"><span>Email do tutor</span><input name="ownerEmail" type="email" placeholder="Opcional"></label>
+        ` : ""}
         <div class="row">
           <label class="field"><span>Nome do cao</span><input name="name" required></label>
           <label class="field"><span>Raca</span><input name="breed"></label>
@@ -1500,9 +1408,27 @@ function bindModal(type, payload, user) {
     }
 
     if (type === "pet") {
+      let ownerId = data.ownerId || user.id;
+      if (user.role === "admin" && !data.ownerId) {
+        const ownerEmail = data.ownerEmail?.trim();
+        const existingOwner = ownerEmail ? state.users.find((item) => item.email.toLowerCase() === ownerEmail.toLowerCase()) : null;
+        if (existingOwner) {
+          ownerId = existingOwner.id;
+        } else {
+          ownerId = uid("u");
+          state.users.push({
+            id: ownerId,
+            name: data.ownerName || "Tutor sem nome",
+            email: ownerEmail || `${ownerId}@hotelbeachpet.local`,
+            password: "hotel123",
+            phone: data.ownerPhone,
+            role: "cliente"
+          });
+        }
+      }
       state.pets.push({
         id: uid("p"),
-        ownerId: data.ownerId || user.id,
+        ownerId,
         name: data.name,
         breed: data.breed,
         age: data.age,
@@ -1522,12 +1448,6 @@ function bindModal(type, payload, user) {
     if (type === "vaccine") {
       state.vaccines.push({ id: uid("vac"), petId: data.petId, name: data.name, date: data.date, expires: data.expires, fileName: form.file.files[0]?.name || "" });
       toast("Vacina cadastrada.");
-    }
-
-    if (type === "user") {
-      if (state.users.some((item) => item.email.toLowerCase() === data.email.toLowerCase())) return toast("Este email ja existe.");
-      state.users.push({ id: uid("u"), name: data.name, email: data.email, password: data.password, phone: data.phone, role: data.role });
-      toast("Usuario criado.");
     }
 
     saveState();
