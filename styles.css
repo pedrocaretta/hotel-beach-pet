@@ -956,6 +956,11 @@ textarea:focus {
   font-size: 12px;
 }
 
+.timeline-item strong,
+.timeline-item small {
+  display: block;
+}
+
 .care-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1269,7 +1274,7 @@ th:last-child {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
     gap: 6px;
   }
 
