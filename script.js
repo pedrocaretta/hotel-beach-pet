@@ -128,6 +128,11 @@ function migrateState() {
     record.hospitalizationName ||= "";
     record.hospitalizationTime ||= "";
     record.medication ||= "";
+    record.complaint ||= record.notes || "";
+    record.vitals ||= "";
+    record.diagnosis ||= "";
+    record.conduct ||= record.prescription || "";
+    record.returnDate ||= "";
   });
 
   saveState();
@@ -294,6 +299,17 @@ function hotelAppointmentStatus(item) {
   if (dateOnly(item.start) <= today && dateOnly(item.end || item.start) >= today) return { label: "hospedado", tone: "blue" };
   if (dateOnly(item.start) > today) return { label: "vai chegar", tone: "gold" };
   return { label: "saiu", tone: "red" };
+}
+
+function vaccineStatus(item) {
+  if (!item.expires) return { label: "sem validade", tone: "" };
+  const today = todayDate();
+  const limit = new Date(today);
+  limit.setUTCMonth(limit.getUTCMonth() + 2);
+  const expires = dateOnly(item.expires);
+  if (expires < today) return { label: "vencida", tone: "red" };
+  if (expires <= limit) return { label: "vence breve", tone: "gold" };
+  return { label: "em dia", tone: "blue" };
 }
 
 function petInitials(name) {
@@ -684,12 +700,15 @@ function groomingTemplate(user) {
 function clinicTemplate(user) {
   if (user.role !== "admin") return appointmentsTemplate(user);
   const consultations = filterItems(clinicAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.notes}`);
-  const records = filterItems(state.vetRecords, (record) => `${petName(record.petId)} ${record.title} ${record.kind} ${record.notes} ${record.weight} ${record.deworming} ${record.prescription}`);
+  const records = filterItems(state.vetRecords, (record) => `${petName(record.petId)} ${record.title} ${record.kind} ${record.notes} ${record.weight} ${record.deworming} ${record.prescription} ${record.complaint} ${record.vitals} ${record.diagnosis} ${record.conduct}`);
   const stays = records.filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"));
   const vaccineLimit = new Date();
   vaccineLimit.setMonth(vaccineLimit.getMonth() + 6);
   const vaccineAlerts = state.vaccines.filter((item) => item.expires && new Date(`${item.expires}T00:00:00Z`) <= vaccineLimit).length;
   const hospitalizations = stays.length;
+  const attention = records.filter((item) => item.priority === "alta" || item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"));
+  const medicationList = records.filter((item) => item.medication || item.prescription || item.kind === "remedio" || item.kind === "internamento");
+  const vaccineItems = [...state.vaccines].sort((a, b) => (a.expires || "9999").localeCompare(b.expires || "9999"));
 
   return `
     <div class="section-title">
@@ -706,35 +725,44 @@ function clinicTemplate(user) {
     </div>
     <section class="module-hero clinic-hero">
       <div>
-        <span class="module-kicker">Area unificada</span>
-        <h3>Prontuario, cuidados veterinarios e vacinas sem abas extras.</h3>
-        <p>Acompanhe consultas, receitas, medicacoes, alertas de vacina e cuidados especiais de cada cachorro.</p>
+        <span class="module-kicker">Rotina veterinaria</span>
+        <h3>O que exige atencao fica primeiro.</h3>
+        <p>Controle triagem, sinais vitais, conduta, medicacao, internacao, retorno e vacinas em uma unica area.</p>
       </div>
       <div class="module-list">
-        <span>Fichas e anamnese por especialidade</span>
-        <span>Receituarios, remedios e observacoes</span>
-        <span>Controle de peso, vermifugos e internamentos</span>
-        <span>Carteira e alertas de vacinas</span>
+        <span>Queixa, exame e conduta</span>
+        <span>Medicacoes e horarios de cuidado</span>
+        <span>Internacoes com acompanhamento</span>
+        <span>Vacinas vencidas ou proximas</span>
       </div>
     </section>
     <section class="stats compact">
-      ${statCard("Consultas agenda", consultations.length, "rgba(79, 141, 247, .16)")}
+      ${statCard("Pacientes em atencao", attention.length, "rgba(228, 87, 99, .16)")}
       ${statCard("Prontuarios", records.length, "rgba(41, 188, 135, .16)")}
       ${statCard("Alertas de vacina", vaccineAlerts, "rgba(232, 185, 73, .2)")}
       ${statCard("Internamentos", hospitalizations, "rgba(228, 87, 99, .16)")}
     </section>
     <section class="dash-grid">
       <div class="panel">
-        <h3>Internacoes e medicacao</h3>
-        <div class="list">${stays.map((item) => `
+        <h3>Pacientes em atencao</h3>
+        <div class="list">${attention.map((item) => `
           <div class="list-item">
-            <div><strong>${petName(item.petId)} - ${item.hospitalizationName || item.title}</strong><span>${item.hospitalizationTime || "Horario nao definido"} - ${item.medication || item.prescription || "Sem remedio cadastrado"}</span></div>
-            <span class="badge red">internado</span>
+            <div><strong>${petName(item.petId)} - ${item.title}</strong><span>${item.complaint || item.notes || "Acompanhar evolucao"}${item.returnDate ? ` - retorno ${formatDate(item.returnDate)}` : ""}</span></div>
+            <span class="badge ${item.priority === "alta" ? "red" : "gold"}">${item.priority || item.kind}</span>
           </div>
-        `).join("") || emptySmall("Nenhuma internacao ativa.")}</div>
+        `).join("") || emptySmall("Nenhum paciente marcado como atencao.")}</div>
       </div>
       <div class="panel">
-        <h3>Atendimentos da clinica</h3>
+        <h3>Medicacoes e internacoes</h3>
+        <div class="list">${medicationList.map((item) => `
+          <div class="list-item">
+            <div><strong>${petName(item.petId)} - ${item.medication || item.prescription || item.title}</strong><span>${item.hospitalizationTime || "Horario a definir"} - ${item.conduct || item.notes || "Sem orientacao cadastrada"}</span></div>
+            <span class="badge ${item.kind === "internamento" ? "red" : "blue"}">${item.kind}</span>
+          </div>
+        `).join("") || emptySmall("Nenhuma medicacao ou internacao cadastrada.")}</div>
+      </div>
+      <div class="panel">
+        <h3>Consultas e retornos</h3>
         <div class="list">${consultations.map((item) => `
           <div class="appointment">
             <div><strong>${petName(item.petId)} - ${item.employee || "Veterinario"}</strong><span>${formatDate(item.start)} ${item.time} - ${item.notes || "Consulta"}</span></div>
@@ -742,10 +770,13 @@ function clinicTemplate(user) {
           </div>`).join("") || emptySmall("Nenhuma consulta veterinaria agendada.")}</div>
       </div>
       <div class="panel">
-        <h3>Carteira e alertas de vacina</h3>
-        <div class="list">${state.vaccines.map((item) => `
-          <div class="list-item"><div><strong>${petName(item.petId)} - ${item.name}</strong><span>Validade: ${formatDate(item.expires)}</span></div><span class="badge ${item.expires ? "gold" : ""}">${item.fileName ? "anexo" : "sem anexo"}</span></div>
-        `).join("") || emptySmall("Nenhuma vacina cadastrada.")}</div>
+        <h3>Vacinas</h3>
+        <div class="list">${vaccineItems.map((item) => {
+          const status = vaccineStatus(item);
+          return `
+          <div class="list-item"><div><strong>${petName(item.petId)} - ${item.name}</strong><span>Aplicacao: ${formatDate(item.date)} - validade: ${formatDate(item.expires)}</span></div><span class="badge ${status.tone}">${status.label}</span></div>
+        `;
+        }).join("") || emptySmall("Nenhuma vacina cadastrada.")}</div>
       </div>
     </section>
     <section class="content-grid clinic-records">
@@ -755,9 +786,13 @@ function clinicTemplate(user) {
           <h3>${record.title}</h3>
           <p class="meta">${petName(record.petId)} - ${formatDate(record.date)} - ${record.kind}</p>
           <dl class="record-details">
+            <dt>Queixa</dt><dd>${record.complaint || "-"}</dd>
+            <dt>Sinais vitais</dt><dd>${record.vitals || "-"}</dd>
             <dt>Peso</dt><dd>${record.weight || "-"}</dd>
+            <dt>Diagnostico</dt><dd>${record.diagnosis || "-"}</dd>
+            <dt>Conduta</dt><dd>${record.conduct || record.prescription || "-"}</dd>
+            <dt>Retorno</dt><dd>${record.returnDate ? formatDate(record.returnDate) : "-"}</dd>
             <dt>Vermifugo</dt><dd>${record.deworming || "-"}</dd>
-            <dt>Receita</dt><dd>${record.prescription || "-"}</dd>
             <dt>Internamento</dt><dd>${record.hospitalization || "Nao"}</dd>
             <dt>Horario</dt><dd>${record.hospitalizationTime || "-"}</dd>
             <dt>Remedio</dt><dd>${record.medication || "-"}</dd>
@@ -1188,7 +1223,7 @@ function modalForm(type, payload, user) {
         <label class="field"><span>Pet</span><select name="petId" required>${petOptions({ role: "admin" }, payload.petId)}</select></label>
         <div class="row">
           <label class="field"><span>Titulo da ficha</span><input name="title" required placeholder="Consulta, retorno, vacina, anamnese"></label>
-          <label class="field"><span>Especialidade</span><select name="kind"><option value="consulta">Consulta</option><option value="anamnese">Anamnese</option><option value="vacina">Vacina</option><option value="remedio">Remedio</option><option value="internamento">Internamento</option></select></label>
+          <label class="field"><span>Tipo</span><select name="kind"><option value="consulta">Consulta</option><option value="triagem">Triagem</option><option value="anamnese">Anamnese</option><option value="vacina">Vacina</option><option value="remedio">Remedio</option><option value="internamento">Internamento</option><option value="retorno">Retorno</option></select></label>
         </div>
         <div class="row">
           <label class="field"><span>Data</span><input name="date" type="date" required></label>
@@ -1198,9 +1233,17 @@ function modalForm(type, payload, user) {
           <label class="field"><span>Peso</span><input name="weight" placeholder="Ex: 12 kg"></label>
           <label class="field"><span>Internamento</span><select name="hospitalization"><option value="Nao">Nao</option><option value="Sim">Sim</option></select></label>
         </div>
+        <label class="field"><span>Queixa principal</span><textarea name="complaint" required placeholder="O que o cachorro apresenta, desde quando e o que o tutor observou"></textarea></label>
+        <label class="field"><span>Sinais vitais / exame fisico</span><textarea name="vitals" placeholder="Temperatura, mucosas, hidratacao, dor, ausculta, pele, fezes/urina"></textarea></label>
+        <label class="field"><span>Suspeita ou diagnostico</span><input name="diagnosis" placeholder="Hipotese clinica ou diagnostico"></label>
         <label class="field"><span>Controle de vermifugo</span><input name="deworming" placeholder="Em dia, aplicar em 30 dias..."></label>
-        <label class="field"><span>Receituario / formulario</span><textarea name="prescription" placeholder="Medicamentos, doses, exames ou formularios"></textarea></label>
-        <label class="field"><span>Prontuario e observacoes</span><textarea name="notes" required placeholder="Historico, sintomas, conduta e cuidados"></textarea></label>
+        <label class="field"><span>Medicacao / receita</span><textarea name="prescription" placeholder="Medicamentos, doses, exames ou formularios"></textarea></label>
+        <label class="field"><span>Conduta e plano</span><textarea name="conduct" placeholder="Cuidados, exames, dieta, isolamento, acompanhamento"></textarea></label>
+        <div class="row">
+          <label class="field"><span>Retorno previsto</span><input name="returnDate" type="date"></label>
+          <label class="field"><span>Horario de medicacao</span><input name="hospitalizationTime" type="time"></label>
+        </div>
+        <label class="field"><span>Observacoes gerais</span><textarea name="notes" placeholder="Evolucao, comportamento, pontos de atencao"></textarea></label>
         <button class="btn" type="submit">Salvar ficha clinica</button>
       </form>
     `;
@@ -1384,14 +1427,19 @@ function bindModal(type, payload, user) {
         kind: data.kind,
         date: data.date,
         priority: data.priority,
-        notes: data.notes,
+        notes: data.notes || data.complaint,
         weight: data.weight,
         deworming: data.deworming,
         prescription: data.prescription,
         hospitalization: data.hospitalization,
         hospitalizationName: data.title,
-        hospitalizationTime: "",
-        medication: data.prescription
+        hospitalizationTime: data.hospitalizationTime,
+        medication: data.prescription,
+        complaint: data.complaint,
+        vitals: data.vitals,
+        diagnosis: data.diagnosis,
+        conduct: data.conduct,
+        returnDate: data.returnDate
       });
       state.appointments.push({
         id: uid("a"),
@@ -1402,7 +1450,7 @@ function bindModal(type, payload, user) {
         end: data.date,
         time: "09:00",
         status: data.kind === "internamento" ? "confirmado" : "agendado",
-        notes: data.title,
+        notes: data.returnDate ? `${data.title}. Retorno: ${formatDate(data.returnDate)}` : data.title,
         price: 0,
         employee: "Clinica",
         step: data.kind,
