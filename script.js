@@ -457,28 +457,43 @@ function dashboardTemplate(user) {
     ...departures.map((item) => ({ kind: "Saida prevista", petId: item.petId, title: `${petName(item.petId)} sai ${formatDate(item.end || item.start)}`, detail: item.notes || "Conferir pertences e observacoes", tone: "blue" })),
     ...attention.map((item) => ({ kind: "Saude", petId: item.petId, title: `${petName(item.petId)} - ${item.title}`, detail: item.complaint || item.notes || "Acompanhar evolucao", tone: item.priority === "alta" ? "red" : "gold", health: true }))
   ].slice(0, 6);
+  const operationStatus = decisions.length ? "Acoes pendentes" : "Operacao em dia";
+  const nextArrival = arrivals[0];
+  const occupancy = state.pets.length ? Math.round((activeStays.length / state.pets.length) * 100) : 0;
 
   return `
-    <div class="section-title">
+    <section class="dashboard-hero">
       <div>
+        <span class="dashboard-kicker">Centro de comando</span>
         <h2>Painel de decisoes</h2>
-        <p class="subtitle">Visao rapida do hotel: quem esta hospedado, quem chega, quem sai e quais caes precisam de atencao.</p>
+        <p>Visao profissional do hotel: ocupacao, chegadas, saidas, pendencias e cuidados de saude em um so lugar.</p>
+      </div>
+      <div class="dashboard-summary">
+        <div><span>Status</span><strong>${operationStatus}</strong></div>
+        <div><span>Ocupacao</span><strong>${occupancy}%</strong></div>
+        <div><span>Proxima chegada</span><strong>${nextArrival ? `${petName(nextArrival.petId)} ${shortDate(nextArrival.start)}` : "Sem fila"}</strong></div>
+      </div>
+    </section>
+    <div class="section-title dashboard-title">
+      <div>
+        <h3>Visao do dia</h3>
+        <p class="subtitle">Priorize o que precisa de decisao e acompanhe a rotina do hotel em tempo real.</p>
       </div>
       <div class="actions inline-actions">
         <button class="btn" data-view="pets">Ver hotel</button>
         <button class="btn secondary" data-modal="appointment">Nova hospedagem</button>
       </div>
     </div>
-    <section class="stats">
-      ${statCard("Pedidos pendentes", pending.length, "rgba(232, 185, 73, .2)")}
-      ${statCard("No hotel hoje", activeStays.length, "rgba(41, 188, 135, .16)")}
-      ${statCard("Saidas hoje/amanha", departures.length, "rgba(79, 141, 247, .16)")}
-      ${statCard("Internacoes", hospitalized, "rgba(228, 87, 99, .16)")}
+    <section class="stats dashboard-stats">
+      ${statCard("Pedidos pendentes", pending.length, "rgba(232, 185, 73, .22)", "para decidir")}
+      ${statCard("No hotel hoje", activeStays.length, "rgba(41, 188, 135, .18)", "hospedados")}
+      ${statCard("Saidas hoje/amanha", departures.length, "rgba(79, 141, 247, .18)", "check-outs")}
+      ${statCard("Internacoes", hospitalized, "rgba(228, 87, 99, .18)", "em cuidado")}
     </section>
     <section class="ops-grid">
       <div class="panel priority-panel">
         <div class="panel-head">
-          <h3>Precisa decidir</h3>
+          <div><span class="panel-kicker">Fila de decisao</span><h3>Precisa decidir</h3></div>
           ${pending.length > 1 ? `<button class="btn secondary" data-confirm-all-stays>Confirmar todos</button>` : `<button class="btn secondary" data-view="pets">Ver hotel</button>`}
         </div>
         <div class="list">${decisions.map((item) => `
@@ -490,21 +505,21 @@ function dashboardTemplate(user) {
       </div>
       <div class="panel">
         <div class="panel-head">
-          <h3>Hospedados hoje</h3>
+          <div><span class="panel-kicker">Ocupacao atual</span><h3>Hospedados hoje</h3></div>
           <button class="btn secondary" data-view="pets">Quartos</button>
         </div>
         <div class="list">${activeStays.map(({ pet, stay }) => stayLine(pet, stay, "hospedado")).join("") || emptySmall("Nenhum cachorro hospedado hoje.")}</div>
       </div>
       <div class="panel">
         <div class="panel-head">
-          <h3>Chegadas</h3>
+          <div><span class="panel-kicker">Entrada prevista</span><h3>Chegadas</h3></div>
           <button class="btn secondary" data-modal="appointment">Nova</button>
         </div>
         <div class="list">${arrivals.map((item) => stayLine(state.pets.find((pet) => pet.id === item.petId), item, "chegada")).join("") || emptySmall("Nenhuma chegada programada.")}</div>
       </div>
       <div class="panel">
         <div class="panel-head">
-          <h3>Vacinas e saude</h3>
+          <div><span class="panel-kicker">Alertas clinicos</span><h3>Vacinas e saude</h3></div>
           <button class="btn secondary" data-view="clinic">Saude</button>
         </div>
         <div class="list">${vaccineAlerts.map((item) => `
@@ -513,7 +528,7 @@ function dashboardTemplate(user) {
       </div>
       <div class="panel operations-panel">
         <div class="panel-head">
-          <h3>Atalhos para agir</h3>
+          <div><span class="panel-kicker">Acoes rapidas</span><h3>Atalhos para agir</h3></div>
         </div>
         <div class="quick-actions">
           <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>

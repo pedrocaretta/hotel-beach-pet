@@ -415,6 +415,108 @@ textarea:focus {
   font-size: 28px;
 }
 
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  gap: 22px;
+  align-items: stretch;
+  margin-bottom: 20px;
+  padding: 24px;
+  border-radius: 8px;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(22, 62, 66, 0.98), rgba(38, 103, 93, 0.96) 62%, rgba(221, 150, 72, 0.92)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 18px);
+  box-shadow: 0 18px 46px rgba(22, 54, 58, 0.18);
+  overflow: hidden;
+  position: relative;
+}
+
+.dashboard-hero:after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  background: linear-gradient(90deg, var(--aqua), var(--gold), var(--coral));
+}
+
+.dashboard-kicker,
+.panel-kicker {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--aqua-dark);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.dashboard-kicker {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.dashboard-hero h2 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.dashboard-hero p {
+  max-width: 680px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-content: end;
+}
+
+.dashboard-summary div {
+  min-height: 94px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-summary span,
+.dashboard-summary strong {
+  display: block;
+}
+
+.dashboard-summary span {
+  margin-bottom: 12px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.dashboard-summary strong {
+  color: #fff;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.dashboard-title {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.dashboard-title h3 {
+  margin: 0 0 4px;
+  font-size: 19px;
+}
+
 .filters {
   display: flex;
   gap: 10px;
@@ -434,6 +536,10 @@ textarea:focus {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.dashboard-stats {
+  gap: 14px;
 }
 
 .stats.compact .stat-card {
@@ -464,6 +570,25 @@ textarea:focus {
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(252, 253, 251, 0.98));
 }
 
+.dashboard-stats .stat-card {
+  min-height: 118px;
+  padding: 17px;
+  border-color: rgba(221, 232, 223, 0.92);
+  background:
+    linear-gradient(180deg, #ffffff, #fbfcf8);
+}
+
+.dashboard-stats .stat-card:before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--tone, rgba(134, 214, 203, 0.22));
+}
+
 .stat-card:after {
   content: "";
   position: absolute;
@@ -481,6 +606,12 @@ textarea:focus {
   margin-top: 17px;
   font-size: 28px;
   letter-spacing: 0;
+}
+
+.dashboard-stats .stat-card strong {
+  margin-top: 14px;
+  font-size: 34px;
+  line-height: 1;
 }
 
 .stat-card span {
@@ -513,10 +644,13 @@ textarea:focus {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(221, 232, 223, 0.82);
 }
 
 .panel-head h3 {
   margin: 0;
+  font-size: 17px;
 }
 
 .decision-item {
@@ -531,6 +665,11 @@ textarea:focus {
   box-shadow: 0 4px 14px rgba(31, 47, 50, 0.04);
 }
 
+.priority-panel .decision-item {
+  padding: 14px;
+  border-left: 4px solid var(--gold);
+}
+
 .decision-item strong,
 .decision-item span {
   display: block;
@@ -543,14 +682,14 @@ textarea:focus {
 
 .quick-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
 .quick-action {
   display: grid;
   gap: 5px;
-  min-height: 102px;
+  min-height: 108px;
   padding: 15px;
   text-align: left;
   border-radius: 8px;
@@ -559,6 +698,10 @@ textarea:focus {
   border: 1px solid var(--line);
   color: var(--ink);
   align-content: center;
+}
+
+.quick-action strong {
+  font-size: 15px;
 }
 
 .quick-action:hover {
@@ -1240,6 +1383,7 @@ th:last-child {
   }
 
   .stats,
+  .dashboard-hero,
   .dash-grid,
   .ops-grid,
   .hotel-board,
@@ -1248,6 +1392,10 @@ th:last-child {
   .pricing-form,
   .content-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-summary {
+    grid-template-columns: 1fr;
   }
 
   .price-card {
@@ -1296,6 +1444,8 @@ th:last-child {
 
   .row,
   .stats,
+  .dashboard-hero,
+  .dashboard-summary,
   .dash-grid,
   .ops-grid,
   .hotel-board,
