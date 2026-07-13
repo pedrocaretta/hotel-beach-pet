@@ -125,6 +125,9 @@ function migrateState() {
     record.deworming ||= "Acompanhar na proxima consulta";
     record.prescription ??= record.kind === "remedio" ? record.notes : "";
     record.hospitalization ||= "Nao";
+    record.hospitalizationName ||= "";
+    record.hospitalizationTime ||= "";
+    record.medication ||= "";
   });
 
   saveState();
@@ -138,7 +141,8 @@ function setSession(user) {
 }
 
 function currentUser() {
-  return state.users.find((user) => user.id === session?.id);
+  const user = state.users.find((item) => item.id === session?.id);
+  return user?.role === "admin" ? user : null;
 }
 
 function uid(prefix) {
@@ -297,23 +301,18 @@ function authTemplate(mode = "login") {
       <section class="auth-art">
         <div class="brand-badge"><span class="paw-mark">HB</span> Hotel Beach Pet</div>
         <div class="auth-copy">
-          <h1>Hotel, banho, tosa e cuidado veterinario.</h1>
-          <p>Um painel simples para tutores agendarem estadias e servicos, enquanto a equipe acompanha cada pet com historico, vacina e observacoes.</p>
+          <h1>Gestao interna do hotel pet.</h1>
+          <p>Controle os caes hospedados, pedidos, banho e tosa, saude, vacinas e internacoes em uma operacao simples para a equipe.</p>
         </div>
       </section>
       <section class="auth-panel">
         <div class="auth-card">
-          <h2>Acessar sistema</h2>
-          <p class="subtitle">Entre como administrador ou tutor cadastrado.</p>
-          <div class="tabs">
-            <button class="tab active" data-auth-tab="login">Login</button>
-            <button class="tab" data-auth-tab="register">Criar conta</button>
-          </div>
-          <div id="auth-form">${mode === "login" ? loginForm() : registerForm()}</div>
+          <h2>Acessar administracao</h2>
+          <p class="subtitle">Painel exclusivo para a equipe do Hotel Beach Pet.</p>
+          <div id="auth-form">${loginForm()}</div>
           <div class="demo-logins">
-            <strong>Acessos de teste</strong>
+            <strong>Acesso de teste</strong>
             <span>Admin: admin@hotelbeachpet.com / admin123</span>
-            <span>Tutor: cliente@hotelbeachpet.com / cliente123</span>
           </div>
         </div>
       </section>
@@ -685,10 +684,11 @@ function clinicTemplate(user) {
   if (user.role !== "admin") return appointmentsTemplate(user);
   const consultations = filterItems(clinicAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.notes}`);
   const records = filterItems(state.vetRecords, (record) => `${petName(record.petId)} ${record.title} ${record.kind} ${record.notes} ${record.weight} ${record.deworming} ${record.prescription}`);
+  const stays = records.filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"));
   const vaccineLimit = new Date();
   vaccineLimit.setMonth(vaccineLimit.getMonth() + 6);
   const vaccineAlerts = state.vaccines.filter((item) => item.expires && new Date(`${item.expires}T00:00:00Z`) <= vaccineLimit).length;
-  const hospitalizations = records.filter((item) => String(item.hospitalization || "").toLowerCase().includes("sim")).length;
+  const hospitalizations = stays.length;
 
   return `
     <div class="section-title">
@@ -698,6 +698,7 @@ function clinicTemplate(user) {
       </div>
       <div class="actions inline-actions">
         <button class="btn" data-modal="clinic">Nova ficha</button>
+        <button class="btn secondary" data-modal="hospitalization">Internacao</button>
         <button class="btn secondary" data-modal="vet">Obs. veterinaria</button>
         <button class="btn secondary" data-modal="vaccine">Vacina</button>
       </div>
@@ -722,6 +723,15 @@ function clinicTemplate(user) {
       ${statCard("Internamentos", hospitalizations, "rgba(228, 87, 99, .16)")}
     </section>
     <section class="dash-grid">
+      <div class="panel">
+        <h3>Internacoes e medicacao</h3>
+        <div class="list">${stays.map((item) => `
+          <div class="list-item">
+            <div><strong>${petName(item.petId)} - ${item.hospitalizationName || item.title}</strong><span>${item.hospitalizationTime || "Horario nao definido"} - ${item.medication || item.prescription || "Sem remedio cadastrado"}</span></div>
+            <span class="badge red">internado</span>
+          </div>
+        `).join("") || emptySmall("Nenhuma internacao ativa.")}</div>
+      </div>
       <div class="panel">
         <h3>Atendimentos da clinica</h3>
         <div class="list">${consultations.map((item) => `
@@ -748,6 +758,8 @@ function clinicTemplate(user) {
             <dt>Vermifugo</dt><dd>${record.deworming || "-"}</dd>
             <dt>Receita</dt><dd>${record.prescription || "-"}</dd>
             <dt>Internamento</dt><dd>${record.hospitalization || "Nao"}</dd>
+            <dt>Horario</dt><dd>${record.hospitalizationTime || "-"}</dd>
+            <dt>Remedio</dt><dd>${record.medication || "-"}</dd>
           </dl>
           <p>${record.notes}</p>
         </article>`).join("") || emptyBlock("Nenhum prontuario clinico cadastrado.")}
@@ -994,6 +1006,7 @@ function bindAuthForms() {
     const data = Object.fromEntries(new FormData(event.target));
     const user = state.users.find((item) => item.email.toLowerCase() === data.email.toLowerCase() && item.password === data.password);
     if (!user) return toast("Email ou senha incorretos.");
+    if (user.role !== "admin") return toast("Acesso exclusivo da administracao.");
     setSession(user);
     toast("Login realizado.");
   });
@@ -1114,7 +1127,7 @@ function closeModal() {
 }
 
 function modalTemplate(type, payload, user) {
-  const titles = { appointment: "Novo agendamento", grooming: "Novo banho/tosa", clinic: "Nova ficha clinica", pet: "Novo cao", vet: "Observacao veterinaria", vaccine: "Carteira de vacina", user: "Novo usuario" };
+  const titles = { appointment: "Novo agendamento", grooming: "Novo banho/tosa", clinic: "Nova ficha clinica", hospitalization: "Internacao", pet: "Novo cao", vet: "Observacao veterinaria", vaccine: "Carteira de vacina", user: "Novo usuario" };
   return `
     <div class="modal-backdrop">
       <section class="modal">
@@ -1224,6 +1237,24 @@ function modalForm(type, payload, user) {
         <label class="field"><span>Receituario / formulario</span><textarea name="prescription" placeholder="Medicamentos, doses, exames ou formularios"></textarea></label>
         <label class="field"><span>Prontuario e observacoes</span><textarea name="notes" required placeholder="Historico, sintomas, conduta e cuidados"></textarea></label>
         <button class="btn" type="submit">Salvar ficha clinica</button>
+      </form>
+    `;
+  }
+
+  if (type === "hospitalization") {
+    return `
+      <form class="form-grid" id="modal-form">
+        <label class="field"><span>Pet</span><select name="petId" required>${petOptions({ role: "admin" }, payload.petId)}</select></label>
+        <div class="row">
+          <label class="field"><span>Nome da internacao</span><input name="hospitalizationName" required placeholder="Ex: Pos-operatorio, observacao 24h"></label>
+          <label class="field"><span>Horario do cuidado</span><input name="hospitalizationTime" type="time" required></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Remedio</span><input name="medication" required placeholder="Nome do remedio"></label>
+          <label class="field"><span>Data</span><input name="date" type="date" required></label>
+        </div>
+        <label class="field"><span>Observacoes da internacao</span><textarea name="notes" placeholder="Dose, alimentacao, sinais de atencao e responsavel"></textarea></label>
+        <button class="btn" type="submit">Salvar internacao</button>
       </form>
     `;
   }
@@ -1380,7 +1411,10 @@ function bindModal(type, payload, user) {
         weight: data.weight,
         deworming: data.deworming,
         prescription: data.prescription,
-        hospitalization: data.hospitalization
+        hospitalization: data.hospitalization,
+        hospitalizationName: data.title,
+        hospitalizationTime: "",
+        medication: data.prescription
       });
       state.appointments.push({
         id: uid("a"),
@@ -1400,6 +1434,44 @@ function bindModal(type, payload, user) {
         commission: 0
       });
       toast("Ficha clinica salva.");
+    }
+
+    if (type === "hospitalization") {
+      const pet = state.pets.find((item) => item.id === data.petId);
+      state.vetRecords.push({
+        id: uid("v"),
+        petId: data.petId,
+        title: `Internacao - ${data.hospitalizationName}`,
+        kind: "internamento",
+        date: data.date,
+        priority: "alta",
+        notes: data.notes,
+        weight: pet?.weight || "",
+        deworming: "",
+        prescription: data.medication,
+        hospitalization: "Sim",
+        hospitalizationName: data.hospitalizationName,
+        hospitalizationTime: data.hospitalizationTime,
+        medication: data.medication
+      });
+      state.appointments.push({
+        id: uid("a"),
+        petId: data.petId,
+        ownerId: pet.ownerId,
+        service: "veterinario",
+        start: data.date,
+        end: data.date,
+        time: data.hospitalizationTime,
+        status: "confirmado",
+        notes: `Internacao: ${data.hospitalizationName}. Remedio: ${data.medication}. ${data.notes || ""}`,
+        price: 0,
+        employee: "Saude",
+        step: "internamento",
+        packageName: data.hospitalizationName,
+        addons: data.medication,
+        commission: 0
+      });
+      toast("Internacao salva.");
     }
 
     if (type === "appointment") {
