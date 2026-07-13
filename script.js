@@ -479,12 +479,12 @@ function dashboardTemplate(user) {
       <div class="panel priority-panel">
         <div class="panel-head">
           <h3>Precisa decidir</h3>
-          <button class="btn secondary" data-view="pets">Ver hotel</button>
+          ${pending.length > 1 ? `<button class="btn secondary" data-confirm-all-stays>Confirmar todos</button>` : `<button class="btn secondary" data-view="pets">Ver hotel</button>`}
         </div>
         <div class="list">${decisions.map((item) => `
           <div class="decision-item">
             <div><strong>${item.kind}: ${item.title}</strong><span>${item.detail}</span></div>
-            ${item.action ? `<div class="table-actions"><button class="btn secondary" data-appointment-action="confirmado" data-id="${item.action}">Aceitar</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.action}">Recusar</button></div>` : `<button class="btn secondary" ${item.health ? `data-view="clinic"` : `data-open-pet="${item.petId}"`}>Abrir</button>`}
+            ${item.action ? `<div class="table-actions"><button class="btn" data-appointment-action="confirmado" data-id="${item.action}">Confirmar hospedagem</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.action}">Recusar</button></div>` : `<button class="btn secondary" ${item.health ? `data-view="clinic"` : `data-open-pet="${item.petId}"`}>Abrir</button>`}
           </div>
         `).join("") || emptySmall("Nada urgente agora.")}</div>
       </div>
@@ -546,6 +546,16 @@ function stayLine(pet, stay, label) {
 
 function appointmentLine(item) {
   return `<div class="appointment"><div><strong>${petName(item.petId)} - ${serviceLabel(item.service)}</strong><span>${formatDate(item.start)} ${item.time} - ${ownerName(item.ownerId)}</span></div>${statusBadge(item.status)}</div>`;
+}
+
+function stayActions(item) {
+  if (item.status !== "agendado") return `<button class="btn secondary" data-edit-appointment="${item.id}">Editar</button>`;
+  return `
+    <div class="table-actions">
+      <button class="btn" data-appointment-action="confirmado" data-id="${item.id}">Confirmar hospedagem</button>
+      <button class="btn secondary" data-edit-appointment="${item.id}">Editar</button>
+    </div>
+  `;
 }
 
 function appointmentsTemplate(user) {
@@ -904,7 +914,7 @@ function petSuite(pet, weekItems, allItems, user) {
           <div class="timeline-item">
             <span>${shortDate(item.start)}<br>${shortDate(item.end || item.start)}</span>
             <div><strong>${item.time || "09:00"} - ${itemStatus.label}</strong><small>${item.notes || "Sem observacao"}</small></div>
-            <button class="btn secondary" data-edit-appointment="${item.id}">Editar</button>
+            ${stayActions(item)}
           </div>
         `;
         }).join("") || emptySmall("Sem hospedagem cadastrada.")}
@@ -1089,9 +1099,19 @@ function bindApp(user) {
 
   document.querySelectorAll("[data-appointment-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      const item = state.appointments.find((appointment) => appointment.id === button.dataset.id);
-      item.status = button.dataset.appointmentAction;
+      updateAppointmentStatus(button.dataset.id, button.dataset.appointmentAction);
+    });
+  });
+
+  document.querySelectorAll("[data-confirm-all-stays]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const pending = hotelAppointments().filter((item) => item.status === "agendado" && item.service === "hotel");
+      pending.forEach((item) => {
+        item.status = "confirmado";
+        item.step = "confirmado";
+      });
       saveState();
+      toast(`${pending.length} hospedagem(ns) confirmada(s).`);
       render();
     });
   });
@@ -1115,6 +1135,16 @@ function bindApp(user) {
     });
   });
 
+}
+
+function updateAppointmentStatus(id, status) {
+  const item = state.appointments.find((appointment) => appointment.id === id);
+  if (!item) return;
+  item.status = status;
+  item.step = status;
+  saveState();
+  toast(status === "confirmado" ? "Hospedagem confirmada." : "Hospedagem recusada.");
+  render();
 }
 
 function openModal(type, payload = {}) {
