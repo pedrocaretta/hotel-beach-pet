@@ -28,7 +28,7 @@ let toastTimer = null;
 let selectedPetId = null;
 
 const roleViews = {
-  admin: ["dashboard", "clinic", "pets"],
+  admin: ["dashboard", "finance", "clinic", "pets"],
   cliente: ["appointments", "grooming", "pets", "vaccines"]
 };
 
@@ -76,6 +76,10 @@ function migrateState() {
   state.appointments.forEach((item) => {
     const defaultPrice = item.service === "hotel" ? 360 : item.service === "veterinario" ? 90 : 120;
     item.price ??= defaultPrice;
+    item.paid ??= 0;
+    item.paymentStatus ||= derivePaymentStatus(item.price, item.paid);
+    item.paymentMethod ||= "";
+    item.financialNotes ||= "";
     item.employee ||= item.service === "veterinario" ? "Dra. Paula" : item.service === "hotel" ? "Marina" : "Carlos";
     item.step ||= item.status === "atendido" ? "finalizado" : item.service === "veterinario" ? "consulta" : "agendado";
     item.packageName ||= serviceLabel(item.service);
@@ -197,6 +201,65 @@ function clinicAppointments() {
 
 function appointmentRevenue(items) {
   return items.reduce((total, item) => total + Number(item.price || 0), 0);
+}
+
+function appointmentPaid(item) {
+  return Number(item.paid || 0);
+}
+
+function appointmentBalance(item) {
+  return Math.max(Number(item.price || 0) - appointmentPaid(item), 0);
+}
+
+function derivePaymentStatus(price, paid) {
+  const total = Number(price || 0);
+  const received = Number(paid || 0);
+  if (total > 0 && received >= total) return "pago";
+  if (received > 0) return "parcial";
+  return "aberto";
+}
+
+function paymentStatusLabel(status) {
+  return { pago: "Pago", parcial: "Parcial", aberto: "Em aberto" }[status] || "Em aberto";
+}
+
+function paymentStatusTone(status) {
+  return { pago: "green", parcial: "gold", aberto: "red" }[status] || "red";
+}
+
+function hotelFinanceItems() {
+  return hotelAppointments().filter((item) => item.status !== "recusado");
+}
+
+function financeSummaryForPet(petId) {
+  const items = hotelFinanceItems().filter((item) => item.petId === petId);
+  return items.reduce((summary, item) => {
+    summary.stays += 1;
+    summary.days += daysBetween(item.start, item.end || item.start);
+    summary.total += Number(item.price || 0);
+    summary.paid += appointmentPaid(item);
+    summary.balance += appointmentBalance(item);
+    summary.lastStay = !summary.lastStay || `${item.start}${item.time}` > `${summary.lastStay.start}${summary.lastStay.time}` ? item : summary.lastStay;
+    return summary;
+  }, { stays: 0, days: 0, total: 0, paid: 0, balance: 0, lastStay: null });
+}
+
+function financePetRows(items = hotelFinanceItems()) {
+  const petIds = [...new Set(items.map((item) => item.petId))];
+  return petIds.map((petId) => {
+    const pet = state.pets.find((item) => item.id === petId);
+    const petItems = items.filter((item) => item.petId === petId);
+    const summary = petItems.reduce((total, item) => {
+      total.stays += 1;
+      total.days += daysBetween(item.start, item.end || item.start);
+      total.revenue += Number(item.price || 0);
+      total.paid += appointmentPaid(item);
+      total.balance += appointmentBalance(item);
+      total.lastStay = !total.lastStay || `${item.start}${item.time}` > `${total.lastStay.start}${total.lastStay.time}` ? item : total.lastStay;
+      return total;
+    }, { stays: 0, days: 0, revenue: 0, paid: 0, balance: 0, lastStay: null });
+    return { pet, petId, ...summary };
+  }).sort((a, b) => b.revenue - a.revenue);
 }
 
 function dateOnly(value) {
@@ -391,6 +454,7 @@ function appTemplate(user) {
         <div class="side-logo"><span class="paw-mark">HB</span><span>Hotel Beach Pet</span></div>
         <nav class="nav">
           ${user.role === "admin" ? navButton("dashboard", "Painel") : ""}
+          ${user.role === "admin" ? navButton("finance", "Financeiro") : ""}
           ${user.role === "admin" ? "" : navButton("appointments", "Agendar")}
           ${user.role === "admin" ? "" : navButton("grooming", "Banho e Tosa")}
           ${user.role === "admin" ? navButton("clinic", "Saude") : ""}
@@ -423,6 +487,7 @@ function viewTemplate(user) {
   normalizeView(user);
   const templates = {
     dashboard: dashboardTemplate,
+    finance: financeTemplate,
     appointments: appointmentsTemplate,
     grooming: groomingTemplate,
     clinic: clinicTemplate,
@@ -446,6 +511,7 @@ function dashboardTemplate(user) {
     return end >= today && end <= tomorrow;
   }).slice(0, 5);
   const pending = appointments.filter((item) => item.status === "agendado" && item.service === "hotel");
+  const financeBalance = hotelFinanceItems().reduce((total, item) => total + appointmentBalance(item), 0);
   const attention = state.vetRecords.filter((item) => item.priority === "alta" || item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim")).slice(0, 5);
   const hospitalized = state.vetRecords.filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim")).length;
   const vaccineAlerts = state.vaccines
@@ -454,6 +520,7 @@ function dashboardTemplate(user) {
     .slice(0, 5);
   const decisions = [
     ...pending.map((item) => ({ kind: "Aceitar hospedagem", petId: item.petId, title: `${petName(item.petId)} - ${formatDate(item.start)} ${item.time}`, detail: item.notes || "Aguardando confirmacao", tone: "gold", action: item.id })),
+    ...(financeBalance > 0 ? [{ kind: "Financeiro", title: "Valores em aberto", detail: `${currency(financeBalance)} para acompanhar`, tone: "red", finance: true }] : []),
     ...departures.map((item) => ({ kind: "Saida prevista", petId: item.petId, title: `${petName(item.petId)} sai ${formatDate(item.end || item.start)}`, detail: item.notes || "Conferir pertences e observacoes", tone: "blue" })),
     ...attention.map((item) => ({ kind: "Saude", petId: item.petId, title: `${petName(item.petId)} - ${item.title}`, detail: item.complaint || item.notes || "Acompanhar evolucao", tone: item.priority === "alta" ? "red" : "gold", health: true }))
   ].slice(0, 6);
@@ -499,7 +566,7 @@ function dashboardTemplate(user) {
         <div class="list">${decisions.map((item) => `
           <div class="decision-item">
             <div><strong>${item.kind}: ${item.title}</strong><span>${item.detail}</span></div>
-            ${item.action ? `<div class="table-actions"><button class="btn" data-appointment-action="confirmado" data-id="${item.action}">Confirmar hospedagem</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.action}">Recusar</button></div>` : `<button class="btn secondary" ${item.health ? `data-view="clinic"` : `data-open-pet="${item.petId}"`}>Abrir</button>`}
+            ${item.action ? `<div class="table-actions"><button class="btn" data-appointment-action="confirmado" data-id="${item.action}">Confirmar hospedagem</button><button class="btn secondary danger" data-appointment-action="recusado" data-id="${item.action}">Recusar</button></div>` : `<button class="btn secondary" ${item.health ? `data-view="clinic"` : item.finance ? `data-view="finance"` : `data-open-pet="${item.petId}"`}>Abrir</button>`}
           </div>
         `).join("") || emptySmall("Nada urgente agora.")}</div>
       </div>
@@ -533,6 +600,7 @@ function dashboardTemplate(user) {
         <div class="quick-actions">
           <button class="quick-action" data-modal="pet"><strong>Novo cao</strong><span>Cadastrar tutor e pet</span></button>
           <button class="quick-action" data-modal="appointment"><strong>Hospedagem</strong><span>Cadastrar chegada</span></button>
+          <button class="quick-action" data-view="finance"><strong>Financeiro</strong><span>Valores por cachorro</span></button>
           <button class="quick-action" data-modal="hospitalization"><strong>Internacao</strong><span>Remedio, horario e cuidado</span></button>
         </div>
       </div>
@@ -542,6 +610,111 @@ function dashboardTemplate(user) {
 
 function statCard(label, value, tone, suffix = "pets") {
   return `<article class="stat-card" style="--tone:${tone}"><span>${label}</span><strong>${value}</strong><span>${suffix}</span></article>`;
+}
+
+function financeTemplate(user) {
+  if (user.role !== "admin") return dashboardTemplate(user);
+  const allItems = hotelFinanceItems();
+  const items = filterItems(allItems, (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.status} ${item.notes} ${item.paymentStatus} ${item.paymentMethod} ${item.financialNotes}`);
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthItems = allItems.filter((item) => String(item.start || "").startsWith(monthKey));
+  const totalRevenue = appointmentRevenue(items);
+  const totalPaid = items.reduce((total, item) => total + appointmentPaid(item), 0);
+  const totalBalance = items.reduce((total, item) => total + appointmentBalance(item), 0);
+  const totalDays = items.reduce((total, item) => total + daysBetween(item.start, item.end || item.start), 0);
+  const monthRevenue = appointmentRevenue(monthItems);
+  const rows = financePetRows(items);
+  const nextReceivables = items
+    .filter((item) => appointmentBalance(item) > 0)
+    .sort((a, b) => `${a.start}${a.time}`.localeCompare(`${b.start}${b.time}`))
+    .slice(0, 5);
+
+  return `
+    <div class="section-title">
+      <div>
+        <h2>Gestao financeira</h2>
+        <p class="subtitle">Controle valores de hospedagem, recebimentos e historico acumulado por cachorro.</p>
+      </div>
+      <div class="actions inline-actions">
+        <button class="btn" data-modal="appointment">Nova hospedagem</button>
+        <button class="btn secondary" data-view="pets">Ver hotel</button>
+      </div>
+    </div>
+    <section class="dashboard-hero finance-hero">
+      <div>
+        <span class="dashboard-kicker">Financeiro do hotel</span>
+        <h2>${currency(totalRevenue)} em hospedagens</h2>
+        <p>Use essa tela para acompanhar o quanto cada cachorro ficou no hotel, quanto ja pagou e o que ainda precisa receber.</p>
+      </div>
+      <div class="dashboard-summary">
+        <div><span>Recebido</span><strong>${currency(totalPaid)}</strong></div>
+        <div><span>Em aberto</span><strong>${currency(totalBalance)}</strong></div>
+        <div><span>Este mes</span><strong>${currency(monthRevenue)}</strong></div>
+      </div>
+    </section>
+    <section class="stats dashboard-stats">
+      ${statCard("Hospedagens", items.length, "rgba(79, 141, 247, .16)", "lancamentos")}
+      ${statCard("Diarias totais", totalDays, "rgba(41, 188, 135, .16)", "diarias")}
+      ${statCard("Clientes/pets", rows.length, "rgba(232, 185, 73, .2)", "com historico")}
+      ${statCard("Pendencias", nextReceivables.length, "rgba(228, 87, 99, .16)", "a receber")}
+    </section>
+    <section class="finance-grid">
+      <div class="panel finance-ranking">
+        <div class="panel-head">
+          <div><span class="panel-kicker">Longo prazo</span><h3>Historico por cachorro</h3></div>
+          <span class="badge blue">${rows.length} pet(s)</span>
+        </div>
+        <div class="finance-list">
+          ${rows.map((row, index) => `
+            <button class="finance-pet-row" data-open-pet="${row.petId}">
+              <span class="rank">${String(index + 1).padStart(2, "0")}</span>
+              <span class="pet-bubble small">${petInitials(row.pet?.name || petName(row.petId))}</span>
+              <span class="finance-pet-main">
+                <strong>${row.pet?.name || petName(row.petId)}</strong>
+                <small>${ownerName(row.pet?.ownerId || row.lastStay?.ownerId)} - ${row.stays} hospedagem(ns), ${row.days} diaria(s)</small>
+              </span>
+              <span class="finance-money">
+                <strong>${currency(row.revenue)}</strong>
+                <small>${currency(row.paid)} pago / ${currency(row.balance)} aberto</small>
+              </span>
+            </button>
+          `).join("") || emptySmall("Cadastre uma hospedagem para gerar historico financeiro.")}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><span class="panel-kicker">A receber</span><h3>Pendencias</h3></div>
+          <span class="badge ${totalBalance > 0 ? "red" : "green"}">${currency(totalBalance)}</span>
+        </div>
+        <div class="list">
+          ${nextReceivables.map((item) => `
+            <div class="list-item finance-due">
+              <div><strong>${petName(item.petId)}</strong><span>${formatDate(item.start)} ate ${formatDate(item.end || item.start)} - ${ownerName(item.ownerId)}</span></div>
+              <button class="btn secondary" data-edit-appointment="${item.id}">${currency(appointmentBalance(item))}</button>
+            </div>
+          `).join("") || emptySmall("Nenhum valor em aberto.")}
+        </div>
+      </div>
+    </section>
+    <div class="table-wrap finance-table">
+      <table>
+        <thead><tr><th>Cachorro</th><th>Periodo</th><th>Diarias</th><th>Total</th><th>Pago</th><th>Aberto</th><th>Status</th><th>Acoes</th></tr></thead>
+        <tbody>${items.map((item) => `
+          <tr>
+            <td><strong>${petName(item.petId)}</strong><br><span class="meta">${ownerName(item.ownerId)}</span></td>
+            <td>${formatDate(item.start)} ate ${formatDate(item.end || item.start)}<br><span class="meta">${item.time || "09:00"}</span></td>
+            <td>${daysBetween(item.start, item.end || item.start)}</td>
+            <td><strong>${currency(item.price)}</strong></td>
+            <td>${currency(appointmentPaid(item))}</td>
+            <td>${currency(appointmentBalance(item))}</td>
+            <td><span class="badge ${paymentStatusTone(item.paymentStatus || derivePaymentStatus(item.price, item.paid))}">${paymentStatusLabel(item.paymentStatus || derivePaymentStatus(item.price, item.paid))}</span></td>
+            <td><button class="btn secondary" data-edit-appointment="${item.id}">Editar</button></td>
+          </tr>
+        `).join("") || `<tr><td colspan="8">${emptySmall("Nenhum lancamento financeiro encontrado.")}</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function procedureRow(label, value, color) {
@@ -904,6 +1077,7 @@ function petSuite(pet, weekItems, allItems, user) {
   const hotelStatus = hotelStayStatus(pet.id);
   const current = hotelStatus.stay || weekItems[0] || allItems[0];
   const stays = hotelAppointments().filter((item) => item.petId === pet.id);
+  const finance = financeSummaryForPet(pet.id);
   return `
     <div class="suite-hero">
       <div class="pet-bubble large">${petInitials(pet.name)}</div>
@@ -933,6 +1107,15 @@ function petSuite(pet, weekItems, allItems, user) {
           </div>
         `;
         }).join("") || emptySmall("Sem hospedagem cadastrada.")}
+      </div>
+    </div>
+    <div class="suite-section finance-snapshot">
+      <h4>Financeiro do cachorro</h4>
+      <div class="finance-mini">
+        <div><span>Total no hotel</span><strong>${currency(finance.total)}</strong></div>
+        <div><span>Recebido</span><strong>${currency(finance.paid)}</strong></div>
+        <div><span>Em aberto</span><strong>${currency(finance.balance)}</strong></div>
+        <div><span>Diarias</span><strong>${finance.days}</strong></div>
       </div>
     </div>
     <div class="suite-section">
@@ -1333,6 +1516,7 @@ function modalForm(type, payload, user) {
     const pets = petOptions(user, editing?.petId || payload.petId);
     const selectedService = editing?.service || "hotel";
     const selectedDogSize = (editing?.addons || "").includes("grande") ? "grande" : "pequeno";
+    const selectedPaymentStatus = editing?.paymentStatus || derivePaymentStatus(editing?.price, editing?.paid);
     if (!pets) {
       return `
         <div class="empty compact-empty">
@@ -1354,6 +1538,22 @@ function modalForm(type, payload, user) {
         </div>
         <label class="field"><span>Porte do cao</span><select name="dogSize"><option value="pequeno" ${selectedDogSize === "pequeno" ? "selected" : ""}>Porte pequeno</option><option value="grande" ${selectedDogSize === "grande" ? "selected" : ""}>Porte grande</option></select></label>
         ${user.role === "admin" ? `<label class="field"><span>Status</span><select name="status"><option value="agendado" ${editing?.status === "agendado" ? "selected" : ""}>Agendado</option><option value="confirmado" ${!editing || editing.status === "confirmado" ? "selected" : ""}>Confirmado</option><option value="atendido" ${editing?.status === "atendido" ? "selected" : ""}>Atendido</option></select></label>` : ""}
+        ${user.role === "admin" ? `
+          <div class="form-section-title">Financeiro da hospedagem</div>
+          <div class="row">
+            <label class="field"><span>Valor total</span><input name="price" type="number" min="0" step="0.01" value="${editing?.price ?? ""}" placeholder="Calcula pela diaria se deixar vazio"></label>
+            <label class="field"><span>Valor pago</span><input name="paid" type="number" min="0" step="0.01" value="${editing?.paid ?? ""}" placeholder="0,00"></label>
+          </div>
+          <div class="row">
+            <label class="field"><span>Status financeiro</span><select name="paymentStatus">
+              <option value="aberto" ${selectedPaymentStatus === "aberto" ? "selected" : ""}>Em aberto</option>
+              <option value="parcial" ${selectedPaymentStatus === "parcial" ? "selected" : ""}>Parcial</option>
+              <option value="pago" ${selectedPaymentStatus === "pago" ? "selected" : ""}>Pago</option>
+            </select></label>
+            <label class="field"><span>Forma de pagamento</span><input name="paymentMethod" value="${editing?.paymentMethod || ""}" placeholder="Pix, dinheiro, cartao..."></label>
+          </div>
+          <label class="field"><span>Observacao financeira</span><textarea name="financialNotes" placeholder="Sinal, combinado com tutor, parcelas...">${editing?.financialNotes || ""}</textarea></label>
+        ` : ""}
         <label class="field"><span>Observacao para a equipe</span><textarea name="notes" placeholder="Ex: horario de alimentacao, ansiedade, cuidado na entrada">${editing?.feedback || editing?.notes || ""}</textarea></label>
         <button class="btn" type="submit">${payload.editId ? "Salvar alteracoes" : user.role === "admin" ? "Salvar hospedagem" : "Enviar pedido de agendamento"}</button>
       </form>
@@ -1569,9 +1769,13 @@ function bindModal(type, payload, user) {
 
     if (type === "appointment") {
       const pet = state.pets.find((item) => item.id === data.petId);
-      const price = data.service === "veterinario" ? 0 : appointmentPrice(data.service, data.start, data.end || data.start, data.dogSize);
-      const dogSizeNote = data.service === "hotel" ? `Porte ${data.dogSize}. ${daysBetween(data.start, data.end || data.start)} diaria(s).` : "";
+      const computedPrice = data.service === "veterinario" ? 0 : appointmentPrice(data.service, data.start, data.end || data.start, data.dogSize);
       const existing = state.appointments.find((item) => item.id === payload.editId);
+      const price = data.price !== undefined && data.price !== "" ? Number(data.price) : computedPrice;
+      let paid = data.paid !== undefined && data.paid !== "" ? Number(data.paid) : Number(existing?.paid || 0);
+      if (data.paymentStatus === "pago" && (!data.paid || Number(data.paid) === 0)) paid = price;
+      const paymentStatus = data.paymentStatus === "aberto" && paid > 0 ? derivePaymentStatus(price, paid) : data.paymentStatus || derivePaymentStatus(price, paid);
+      const dogSizeNote = data.service === "hotel" ? `Porte ${data.dogSize}. ${daysBetween(data.start, data.end || data.start)} diaria(s).` : "";
       const appointmentData = {
         id: existing?.id || uid("a"),
         petId: data.petId,
@@ -1583,11 +1787,15 @@ function bindModal(type, payload, user) {
         status: data.status || "agendado",
         notes: [dogSizeNote, data.notes].filter(Boolean).join(" "),
         price,
-        employee: "",
-        step: "agendado",
+        paid,
+        paymentStatus,
+        paymentMethod: data.paymentMethod || existing?.paymentMethod || "",
+        financialNotes: data.financialNotes || existing?.financialNotes || "",
+        employee: existing?.employee || "",
+        step: existing?.step || "agendado",
         packageName: data.service === "hotel" ? `Hospedagem - porte ${data.dogSize}` : serviceLabel(data.service),
         addons: dogSizeNote,
-        commission: 0,
+        commission: existing?.commission || 0,
         feedback: data.notes
       };
       if (existing) {
