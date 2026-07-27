@@ -903,6 +903,132 @@ textarea:focus {
   color: #217d56;
 }
 
+.hospitalization-panel {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.hospital-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.hospital-head h3 {
+  margin: 2px 0 4px;
+  font-size: 20px;
+}
+
+.hospital-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 190px 190px;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.hospital-filters input,
+.hospital-filters select {
+  background: #fbfdfc;
+}
+
+.hospital-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.hospital-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 138px;
+  padding: 15px 14px 14px 18px;
+  border: 1px solid var(--line);
+  border-left: 7px solid var(--risk-color, var(--aqua));
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff, #fbfdfc);
+  box-shadow: 0 10px 24px rgba(31, 47, 50, 0.06);
+}
+
+.hospital-card.risk-green {
+  --risk-color: #25c46b;
+}
+
+.hospital-card.risk-blue {
+  --risk-color: #24b7d7;
+}
+
+.hospital-card.risk-gold {
+  --risk-color: #f0a327;
+}
+
+.hospital-card.risk-red {
+  --risk-color: var(--red);
+}
+
+.hospital-card-main strong,
+.hospital-card-main span,
+.hospital-card-main small {
+  display: block;
+}
+
+.hospital-card-main strong {
+  margin-bottom: 7px;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.hospital-card-main span {
+  color: #4c5b5e;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hospital-card-main small {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.hospital-card-side {
+  display: grid;
+  align-content: space-between;
+  justify-items: end;
+}
+
+.pet-icon-btn {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff0f1;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(228, 87, 99, 0.18);
+}
+
+.pet-icon-btn:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+.medication-map {
+  margin-bottom: 18px;
+}
+
+.flat-table {
+  box-shadow: none;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1517,6 +1643,7 @@ th:last-child {
   .dash-grid,
   .ops-grid,
   .finance-grid,
+  .hospital-grid,
   .hotel-board,
   .module-hero,
   .service-grid,
@@ -1530,6 +1657,10 @@ th:last-child {
   }
 
   .price-card {
+    grid-template-columns: 1fr;
+  }
+
+  .hospital-filters {
     grid-template-columns: 1fr;
   }
 
@@ -1580,6 +1711,7 @@ th:last-child {
   .dash-grid,
   .ops-grid,
   .finance-grid,
+  .hospital-grid,
   .hotel-board,
   .kennel-map,
   .quick-actions,
@@ -1610,7 +1742,8 @@ th:last-child {
   }
 
   .topbar,
-  .section-title {
+  .section-title,
+  .hospital-head {
     align-items: stretch;
     flex-direction: column;
   }

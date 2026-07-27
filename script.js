@@ -97,6 +97,13 @@ function migrateState() {
     record.hospitalizationName ||= "";
     record.hospitalizationTime ||= "";
     record.medication ||= "";
+    record.box ||= "";
+    record.risk ||= record.priority === "alta" ? "alto" : "moderado";
+    record.dischargeDate ||= "";
+    record.dosage ||= "";
+    record.medicationRoute ||= "";
+    record.medicationFrequency ||= "";
+    record.responsible ||= "";
     record.complaint ||= record.notes || "";
     record.vitals ||= "";
     record.diagnosis ||= "";
@@ -225,6 +232,20 @@ function paymentStatusLabel(status) {
 
 function paymentStatusTone(status) {
   return { pago: "green", parcial: "gold", aberto: "red" }[status] || "red";
+}
+
+function riskTone(risk) {
+  return { baixo: "green", moderado: "blue", alto: "gold", critico: "red" }[risk] || "blue";
+}
+
+function riskLabel(risk) {
+  return { baixo: "Baixo", moderado: "Moderado", alto: "Alto", critico: "Critico" }[risk] || "Moderado";
+}
+
+function hospitalizationRecords(items = state.vetRecords) {
+  return items
+    .filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"))
+    .sort((a, b) => `${a.box || "999"}${a.hospitalizationTime || "99:99"}`.localeCompare(`${b.box || "999"}${b.hospitalizationTime || "99:99"}`));
 }
 
 function hotelFinanceItems() {
@@ -894,13 +915,14 @@ function clinicTemplate(user) {
   if (user.role !== "admin") return appointmentsTemplate(user);
   const consultations = filterItems(clinicAppointments(), (item) => `${petName(item.petId)} ${ownerName(item.ownerId)} ${item.employee} ${item.notes}`);
   const records = filterItems(state.vetRecords, (record) => `${petName(record.petId)} ${record.title} ${record.kind} ${record.notes} ${record.weight} ${record.deworming} ${record.prescription} ${record.complaint} ${record.vitals} ${record.diagnosis} ${record.conduct}`);
-  const stays = records.filter((item) => item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"));
+  const stays = hospitalizationRecords(records);
   const vaccineLimit = new Date();
   vaccineLimit.setMonth(vaccineLimit.getMonth() + 6);
   const vaccineAlerts = state.vaccines.filter((item) => item.expires && new Date(`${item.expires}T00:00:00Z`) <= vaccineLimit).length;
   const hospitalizations = stays.length;
   const attention = records.filter((item) => item.priority === "alta" || item.kind === "internamento" || String(item.hospitalization || "").toLowerCase().includes("sim"));
   const medicationList = records.filter((item) => item.medication || item.prescription || item.kind === "remedio" || item.kind === "internamento");
+  const medicationToday = medicationList.filter((item) => item.hospitalizationTime).sort((a, b) => (a.hospitalizationTime || "").localeCompare(b.hospitalizationTime || ""));
   const vaccineItems = [...state.vaccines].sort((a, b) => (a.expires || "9999").localeCompare(b.expires || "9999"));
 
   return `
@@ -910,8 +932,8 @@ function clinicTemplate(user) {
         <p class="subtitle">Clinica, veterinario, observacoes, prontuario e vacinas em uma unica area.</p>
       </div>
       <div class="actions inline-actions">
+        <button class="btn" data-modal="hospitalization">Nova internacao</button>
         <button class="btn" data-modal="clinic">Nova ficha</button>
-        <button class="btn secondary" data-modal="hospitalization">Internacao</button>
         <button class="btn secondary" data-modal="vet">Obs. veterinaria</button>
         <button class="btn secondary" data-modal="vaccine">Vacina</button>
       </div>
@@ -935,6 +957,49 @@ function clinicTemplate(user) {
       ${statCard("Alertas de vacina", vaccineAlerts, "rgba(232, 185, 73, .2)")}
       ${statCard("Internamentos", hospitalizations, "rgba(228, 87, 99, .16)")}
     </section>
+    <section class="hospitalization-panel">
+      <div class="hospital-head">
+        <div>
+          <span class="panel-kicker">Internacao e medicamentos</span>
+          <h3>Animais internados</h3>
+          <p class="subtitle">Cards por box para acompanhar risco, remedios, tutor e previsao de alta.</p>
+        </div>
+        <div class="actions inline-actions">
+          <button class="btn secondary" data-view="clinic">Mapa de execucao</button>
+          <button class="btn" data-modal="hospitalization">Nova internacao</button>
+        </div>
+      </div>
+      <div class="hospital-filters">
+        <input value="${searchTerm}" disabled placeholder="Pesquisa pelo campo de busca superior">
+        <select disabled><option>Risco: todos</option></select>
+        <select disabled><option>Internacao: ativos</option></select>
+      </div>
+      <div class="hospital-grid">
+        ${stays.map((record, index) => hospitalizationCard(record, index)).join("") || emptyBlock("Nenhum animal internado agora.")}
+      </div>
+    </section>
+    <section class="panel medication-map">
+      <div class="panel-head">
+        <div><span class="panel-kicker">Mapa de execucao</span><h3>Medicamentos de hoje</h3></div>
+        <span class="badge blue">${medicationToday.length} horario(s)</span>
+      </div>
+      <div class="table-wrap flat-table">
+        <table>
+          <thead><tr><th>Horario</th><th>Paciente</th><th>Medicamento</th><th>Dose / via</th><th>Frequencia</th><th>Responsavel</th><th>Orientacao</th></tr></thead>
+          <tbody>${medicationToday.map((item) => `
+            <tr>
+              <td><strong>${item.hospitalizationTime || "-"}</strong></td>
+              <td>${petName(item.petId)}<br><span class="meta">${ownerName(state.pets.find((pet) => pet.id === item.petId)?.ownerId)}</span></td>
+              <td>${item.medication || item.prescription || item.title}</td>
+              <td>${item.dosage || "-"}${item.medicationRoute ? ` / ${item.medicationRoute}` : ""}</td>
+              <td>${item.medicationFrequency || "-"}</td>
+              <td>${item.responsible || "-"}</td>
+              <td>${item.notes || item.conduct || "-"}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="7">${emptySmall("Nenhum medicamento com horario definido.")}</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>
     <section class="dash-grid">
       <div class="panel">
         <h3>Pacientes em atencao</h3>
@@ -944,15 +1009,6 @@ function clinicTemplate(user) {
             <span class="badge ${item.priority === "alta" ? "red" : "gold"}">${item.priority || item.kind}</span>
           </div>
         `).join("") || emptySmall("Nenhum paciente marcado como atencao.")}</div>
-      </div>
-      <div class="panel">
-        <h3>Medicacoes e internacoes</h3>
-        <div class="list">${medicationList.map((item) => `
-          <div class="list-item">
-            <div><strong>${petName(item.petId)} - ${item.medication || item.prescription || item.title}</strong><span>${item.hospitalizationTime || "Horario a definir"} - ${item.conduct || item.notes || "Sem orientacao cadastrada"}</span></div>
-            <span class="badge ${item.kind === "internamento" ? "red" : "blue"}">${item.kind}</span>
-          </div>
-        `).join("") || emptySmall("Nenhuma medicacao ou internacao cadastrada.")}</div>
       </div>
       <div class="panel">
         <h3>Consultas e retornos</h3>
@@ -987,12 +1043,36 @@ function clinicTemplate(user) {
             <dt>Retorno</dt><dd>${record.returnDate ? formatDate(record.returnDate) : "-"}</dd>
             <dt>Vermifugo</dt><dd>${record.deworming || "-"}</dd>
             <dt>Internamento</dt><dd>${record.hospitalization || "Nao"}</dd>
+            <dt>Box / risco</dt><dd>${record.box || "-"} ${record.risk ? `- ${riskLabel(record.risk)}` : ""}</dd>
             <dt>Horario</dt><dd>${record.hospitalizationTime || "-"}</dd>
-            <dt>Remedio</dt><dd>${record.medication || "-"}</dd>
+            <dt>Remedio</dt><dd>${record.medication || "-"} ${record.dosage ? `- ${record.dosage}` : ""}</dd>
+            <dt>Alta</dt><dd>${record.dischargeDate ? formatDate(record.dischargeDate) : "-"}</dd>
           </dl>
           <p>${record.notes}</p>
         </article>`).join("") || emptyBlock("Nenhum prontuario clinico cadastrado.")}
     </section>
+  `;
+}
+
+function hospitalizationCard(record, index) {
+  const pet = state.pets.find((item) => item.id === record.petId);
+  const tone = riskTone(record.risk);
+  const box = record.box || `BOX ${index + 1}`;
+  return `
+    <article class="hospital-card risk-${tone}">
+      <div class="hospital-card-main">
+        <strong>${box}</strong>
+        <span>Tutor: ${ownerName(pet?.ownerId)}</span>
+        <span>Pet: ${petName(record.petId)}</span>
+        <span>SRD, ${record.weight || pet?.weight || "-"}</span>
+        <span>${record.dischargeDate ? `Alta prevista: ${formatDate(record.dischargeDate)}` : "Sem previsao de alta"}</span>
+        <small>${record.medication ? `${record.medication}${record.dosage ? ` - ${record.dosage}` : ""}` : record.notes || "Sem medicacao cadastrada"}</small>
+      </div>
+      <div class="hospital-card-side">
+        <span class="badge ${tone}">${riskLabel(record.risk)}</span>
+        <button class="pet-icon-btn" data-open-pet="${record.petId}" title="Abrir cachorro">${petInitials(petName(record.petId))}</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1498,12 +1578,28 @@ function modalForm(type, payload, user) {
       <form class="form-grid" id="modal-form">
         <label class="field"><span>Pet</span><select name="petId" required>${pets}</select></label>
         <div class="row">
+          <label class="field"><span>Box</span><input name="box" required placeholder="Ex: BOX 1"></label>
+          <label class="field"><span>Risco</span><select name="risk"><option value="baixo">Baixo</option><option value="moderado" selected>Moderado</option><option value="alto">Alto</option><option value="critico">Critico</option></select></label>
+        </div>
+        <div class="row">
           <label class="field"><span>Nome da internacao</span><input name="hospitalizationName" required placeholder="Ex: Pos-operatorio, observacao 24h"></label>
           <label class="field"><span>Horario do cuidado</span><input name="hospitalizationTime" type="time" required></label>
         </div>
         <div class="row">
           <label class="field"><span>Remedio</span><input name="medication" required placeholder="Nome do remedio"></label>
           <label class="field"><span>Data</span><input name="date" type="date" required></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Dose</span><input name="dosage" placeholder="Ex: 1 comprimido, 2 ml"></label>
+          <label class="field"><span>Via</span><select name="medicationRoute"><option value="">Selecionar</option><option value="Oral">Oral</option><option value="Subcutanea">Subcutanea</option><option value="Intramuscular">Intramuscular</option><option value="Intravenosa">Intravenosa</option><option value="Topica">Topica</option></select></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Frequencia</span><input name="medicationFrequency" placeholder="Ex: 12/12h, uma vez ao dia"></label>
+          <label class="field"><span>Responsavel</span><input name="responsible" placeholder="Quem executa"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Peso no atendimento</span><input name="weight" placeholder="Ex: 8,9 kg"></label>
+          <label class="field"><span>Previsao de alta</span><input name="dischargeDate" type="date"></label>
         </div>
         <label class="field"><span>Observacoes da internacao</span><textarea name="notes" placeholder="Dose, alimentacao, sinais de atencao e responsavel"></textarea></label>
         <button class="btn" type="submit">Salvar internacao</button>
@@ -1737,15 +1833,22 @@ function bindModal(type, payload, user) {
         title: `Internacao - ${data.hospitalizationName}`,
         kind: "internamento",
         date: data.date,
-        priority: "alta",
+        priority: ["alto", "critico"].includes(data.risk) ? "alta" : "normal",
         notes: data.notes,
-        weight: pet?.weight || "",
+        weight: data.weight || pet?.weight || "",
         deworming: "",
         prescription: data.medication,
         hospitalization: "Sim",
         hospitalizationName: data.hospitalizationName,
         hospitalizationTime: data.hospitalizationTime,
-        medication: data.medication
+        medication: data.medication,
+        box: data.box,
+        risk: data.risk,
+        dischargeDate: data.dischargeDate,
+        dosage: data.dosage,
+        medicationRoute: data.medicationRoute,
+        medicationFrequency: data.medicationFrequency,
+        responsible: data.responsible
       });
       state.appointments.push({
         id: uid("a"),
