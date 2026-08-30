@@ -390,6 +390,14 @@ textarea:focus {
   background: #fff;
 }
 
+.top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .role-pill {
   display: inline-flex;
   align-items: center;
@@ -401,6 +409,35 @@ textarea:focus {
   color: var(--aqua-dark);
   font-weight: 800;
   font-size: 13px;
+}
+
+.sync-pill {
+  min-height: 34px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #fff7e4;
+  border: 1px solid #f2dfad;
+  color: #a97811;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sync-pill.red {
+  background: #fff0f1;
+  border-color: #f4cbd0;
+  color: var(--red);
+}
+
+.sync-pill.blue {
+  background: #edf4ff;
+  border-color: #cfe0ff;
+  color: var(--blue);
+}
+
+.sync-pill.green {
+  background: #e5f8ef;
+  border-color: #c8ead9;
+  color: #217d56;
 }
 
 .section-title {
@@ -1481,6 +1518,69 @@ textarea:focus {
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.cloud-panel {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #f2dfad;
+  background: #fff7e4;
+  color: #a97811;
+}
+
+.cloud-panel.green {
+  border-color: #c8ead9;
+  background: #e5f8ef;
+  color: #217d56;
+}
+
+.cloud-panel.blue {
+  border-color: #cfe0ff;
+  background: #edf4ff;
+  color: var(--blue);
+}
+
+.cloud-panel.red {
+  border-color: #f4cbd0;
+  background: #fff0f1;
+  color: var(--red);
+}
+
+.cloud-panel strong,
+.cloud-panel span {
+  display: block;
+}
+
+.cloud-panel span {
+  font-size: 12px;
+}
+
+.cloud-actions {
+  margin-top: 0;
+}
+
+.cloud-sql {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.cloud-sql strong {
+  font-size: 13px;
+}
+
+.cloud-sql code {
+  display: block;
+  white-space: pre-wrap;
+  color: #415256;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .table-wrap {

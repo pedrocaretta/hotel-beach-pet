@@ -1,4 +1,6 @@
 const STORAGE_KEY = "hotelBeachPetState:v1";
+const CLOUD_CONFIG_KEY = "hotelBeachPetCloudConfig:v1";
+const CLOUD_ROW_ID = "main";
 
 const seedState = {
   users: [
@@ -18,6 +20,9 @@ const seedState = {
 
 const DEMO_IDS = new Set(["u-client", "p-bela", "p-thor", "a-1", "a-2", "a-3", "a-clinic-demo", "v-1", "v-2", "vac-1", "vac-2"]);
 
+let cloudConfig = loadCloudConfig();
+let syncTimer = null;
+let cloudBootstrapping = true;
 let state = loadState();
 migrateState();
 let session = JSON.parse(localStorage.getItem("hotelBeachPetSession") || "null");
@@ -26,6 +31,8 @@ let searchTerm = "";
 let modal = null;
 let toastTimer = null;
 let selectedPetId = null;
+let syncStatus = { state: cloudConfigured() ? "connecting" : "local", message: cloudConfigured() ? "Conectando nuvem" : "Salvo neste aparelho" };
+cloudBootstrapping = false;
 
 const roleViews = {
   admin: ["dashboard", "finance", "clinic", "pets"],
@@ -51,6 +58,148 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  queueCloudSave();
+}
+
+function loadCloudConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function cloudConfigured() {
+  return Boolean(cloudConfig?.url && cloudConfig?.anonKey);
+}
+
+function cleanCloudConfig(config) {
+  return {
+    url: String(config.url || "").trim().replace(/\/+$/, ""),
+    anonKey: String(config.anonKey || "").trim()
+  };
+}
+
+function cloudStatusLabel() {
+  const labels = {
+    local: "Local",
+    connecting: "Conectando",
+    synced: "Nuvem ativa",
+    saving: "Salvando",
+    error: "Erro na nuvem"
+  };
+  return labels[syncStatus.state] || "Local";
+}
+
+function cloudStatusTone() {
+  return { local: "gold", connecting: "blue", synced: "green", saving: "blue", error: "red" }[syncStatus.state] || "gold";
+}
+
+function cloudHeaders(extra = {}) {
+  return {
+    apikey: cloudConfig.anonKey,
+    Authorization: `Bearer ${cloudConfig.anonKey}`,
+    "Content-Type": "application/json",
+    ...extra
+  };
+}
+
+async function cloudFetch(path, options = {}) {
+  const response = await fetch(`${cloudConfig.url}/rest/v1/${path}`, {
+    ...options,
+    headers: cloudHeaders(options.headers || {})
+  });
+  if (!response.ok) throw new Error(await response.text());
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function serializableState() {
+  return structuredClone({
+    users: state.users,
+    pets: state.pets,
+    appointments: state.appointments,
+    vetRecords: state.vetRecords,
+    vaccines: state.vaccines,
+    pricing: state.pricing
+  });
+}
+
+function mergeArraysById(remoteItems = [], localItems = []) {
+  const map = new Map();
+  remoteItems.forEach((item) => map.set(item.id, item));
+  localItems.forEach((item) => map.set(item.id, { ...map.get(item.id), ...item }));
+  return [...map.values()];
+}
+
+function mergeState(remoteState = {}, localState = state) {
+  return {
+    users: mergeArraysById(remoteState.users, localState.users),
+    pets: mergeArraysById(remoteState.pets, localState.pets),
+    appointments: mergeArraysById(remoteState.appointments, localState.appointments),
+    vetRecords: mergeArraysById(remoteState.vetRecords, localState.vetRecords),
+    vaccines: mergeArraysById(remoteState.vaccines, localState.vaccines),
+    pricing: { ...(remoteState.pricing || {}), ...(localState.pricing || {}) }
+  };
+}
+
+function queueCloudSave() {
+  if (!cloudConfigured() || cloudBootstrapping) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => pushCloudState(), 650);
+}
+
+async function pushCloudState(showToast = false) {
+  if (!cloudConfigured()) return;
+  try {
+    syncStatus = { state: "saving", message: "Enviando dados para a nuvem" };
+    const payload = { id: CLOUD_ROW_ID, data: serializableState(), updated_at: new Date().toISOString() };
+    await cloudFetch("app_state", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify(payload)
+    });
+    syncStatus = { state: "synced", message: "Dados sincronizados" };
+    if (showToast) toast("Dados enviados para a nuvem.");
+    render();
+  } catch (error) {
+    syncStatus = { state: "error", message: "Nao consegui salvar na nuvem. Confira URL, chave e tabela app_state." };
+    if (showToast) toast(syncStatus.message);
+    render();
+  }
+}
+
+async function pullCloudState(showToast = false) {
+  if (!cloudConfigured()) return;
+  try {
+    syncStatus = { state: "connecting", message: "Buscando dados na nuvem" };
+    const rows = await cloudFetch(`app_state?id=eq.${CLOUD_ROW_ID}&select=data,updated_at`);
+    if (rows?.[0]?.data) {
+      cloudBootstrapping = true;
+      state = mergeState(rows[0].data, state);
+      migrateState();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      cloudBootstrapping = false;
+      await pushCloudState(false);
+      if (showToast) toast("Dados da nuvem mesclados com este aparelho.");
+    } else {
+      await pushCloudState(false);
+      if (showToast) toast("Nuvem configurada. Dados deste aparelho enviados.");
+    }
+    syncStatus = { state: "synced", message: "Dados sincronizados" };
+    render();
+  } catch (error) {
+    cloudBootstrapping = false;
+    syncStatus = { state: "error", message: "Nao consegui conectar ao Supabase." };
+    if (showToast) toast("Nao consegui conectar ao Supabase. Confira a configuracao.");
+    render();
+  }
+}
+
+async function initCloudSync() {
+  if (!cloudConfigured()) return;
+  await pullCloudState(false);
 }
 
 function migrateState() {
@@ -492,7 +641,10 @@ function appTemplate(user) {
           <div class="search-line">
             <input id="search" placeholder="Buscar por pet, tutor, servico ou observacao" value="${searchTerm}">
           </div>
-          <span class="role-pill">${user.role === "admin" ? "Admin" : "Usuario"}</span>
+          <div class="top-actions">
+            <button class="sync-pill ${cloudStatusTone()}" data-modal="cloud" title="${syncStatus.message}">${cloudStatusLabel()}</button>
+            <span class="role-pill">${user.role === "admin" ? "Admin" : "Usuario"}</span>
+          </div>
         </div>
         <div id="view">${viewTemplate(user)}</div>
       </section>
@@ -1444,7 +1596,7 @@ function closeModal() {
 }
 
 function modalTemplate(type, payload, user) {
-  const titles = { appointment: "Novo agendamento", grooming: "Novo banho/tosa", clinic: "Nova ficha clinica", hospitalization: "Internacao", pet: "Novo cao", vet: "Observacao veterinaria", vaccine: "Carteira de vacina", user: "Novo usuario" };
+  const titles = { appointment: "Novo agendamento", grooming: "Novo banho/tosa", clinic: "Nova ficha clinica", hospitalization: "Internacao", pet: "Novo cao", vet: "Observacao veterinaria", vaccine: "Carteira de vacina", user: "Novo usuario", cloud: "Nuvem e backup" };
   if (payload.editId && type === "appointment") titles.appointment = "Editar hospedagem";
   if (payload.editId && type === "pet") titles.pet = "Editar cao";
   return `
@@ -1485,6 +1637,37 @@ function serviceOptions(user, selected = "hotel") {
 }
 
 function modalForm(type, payload, user) {
+  if (type === "cloud") {
+    const backup = JSON.stringify(serializableState(), null, 2);
+    return `
+      <form class="form-grid" id="modal-form">
+        <div class="cloud-panel ${cloudStatusTone()}">
+          <strong>${cloudStatusLabel()}</strong>
+          <span>${syncStatus.message}</span>
+        </div>
+        <label class="field"><span>URL do Supabase</span><input name="url" value="${cloudConfig.url || ""}" placeholder="https://seu-projeto.supabase.co"></label>
+        <label class="field"><span>Anon public key</span><input name="anonKey" value="${cloudConfig.anonKey || ""}" placeholder="Cole a anon key publica do Supabase"></label>
+        <div class="actions cloud-actions">
+          <button class="btn" type="submit">Salvar e sincronizar</button>
+          <button class="btn secondary" type="button" data-cloud-pull>Puxar da nuvem</button>
+          <button class="btn secondary" type="button" data-cloud-push>Enviar este aparelho</button>
+        </div>
+        <div class="form-section-title">Backup dos dados deste aparelho</div>
+        <label class="field"><span>Exportar backup</span><textarea readonly rows="6">${backup}</textarea></label>
+        <label class="field"><span>Importar backup sem apagar a nuvem</span><textarea name="backupImport" rows="5" placeholder="Cole aqui um backup exportado de outro aparelho"></textarea></label>
+        <button class="btn secondary" type="button" data-import-backup>Importar backup neste aparelho</button>
+        <div class="cloud-sql">
+          <strong>SQL necessario no Supabase</strong>
+          <code>create table if not exists app_state (id text primary key, data jsonb not null, updated_at timestamptz not null default now());
+alter table app_state enable row level security;
+create policy "app_state anon read" on app_state for select using (true);
+create policy "app_state anon insert" on app_state for insert with check (true);
+create policy "app_state anon update" on app_state for update using (true) with check (true);</code>
+        </div>
+      </form>
+    `;
+  }
+
   if (type === "grooming") {
     if (user.role !== "admin") {
       const selectedService = payload.service || "banho";
@@ -1749,10 +1932,44 @@ function bindModal(type, payload, user) {
   const modalFormEl = document.getElementById("modal-form");
   if (!modalFormEl) return;
 
-  modalFormEl.addEventListener("submit", (event) => {
+  document.querySelector("[data-cloud-pull]")?.addEventListener("click", () => pullCloudState(true));
+  document.querySelector("[data-cloud-push]")?.addEventListener("click", () => pushCloudState(true));
+  document.querySelector("[data-import-backup]")?.addEventListener("click", async () => {
+    const raw = modalFormEl.elements.backupImport?.value?.trim();
+    if (!raw) return toast("Cole um backup para importar.");
+    try {
+      const imported = JSON.parse(raw);
+      state = mergeState(imported, state);
+      migrateState();
+      saveState();
+      await pushCloudState(false);
+      toast("Backup importado e mesclado.");
+      closeModal();
+      render();
+    } catch {
+      toast("Backup invalido. Confira o texto colado.");
+    }
+  });
+
+  modalFormEl.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target;
     const data = Object.fromEntries(new FormData(form));
+
+    if (type === "cloud") {
+      cloudConfig = cleanCloudConfig(data);
+      localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig));
+      if (!cloudConfigured()) {
+        syncStatus = { state: "local", message: "Salvo neste aparelho. Configure o Supabase para sincronizar." };
+        toast("Configuracao da nuvem removida.");
+        closeModal();
+        render();
+        return;
+      }
+      await pullCloudState(true);
+      closeModal();
+      return;
+    }
 
     if (type === "grooming") {
       const pet = state.pets.find((item) => item.id === data.petId);
@@ -1973,3 +2190,4 @@ function bindModal(type, payload, user) {
 }
 
 render();
+initCloudSync();

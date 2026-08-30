@@ -54,11 +54,18 @@ create table if not exists vaccines (
   created_at timestamptz not null default now()
 );
 
+create table if not exists app_state (
+  id text primary key,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 alter table profiles enable row level security;
 alter table pets enable row level security;
 alter table appointments enable row level security;
 alter table vet_records enable row level security;
 alter table vaccines enable row level security;
+alter table app_state enable row level security;
 
 create policy "profiles read own or admin" on profiles
   for select using (auth.uid() = id or exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin'));
@@ -98,3 +105,12 @@ create policy "vaccines owner or admin insert" on vaccines
       and (pets.owner_id = auth.uid() or exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin'))
     )
   );
+
+create policy "app_state anon read" on app_state
+  for select using (true);
+
+create policy "app_state anon insert" on app_state
+  for insert with check (true);
+
+create policy "app_state anon update" on app_state
+  for update using (true) with check (true);
