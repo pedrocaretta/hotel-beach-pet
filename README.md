@@ -1,6 +1,6 @@
 # Hotel Beach Pet
 
-Sistema inicial para hotel de cachorro com login de administrador e tutor, dashboard, agendamentos, cadastro de caes, observacoes veterinarias e carteira de vacina.
+Sistema para hotel de cachorro com login de administrador, dashboard, hospedagem, saude veterinaria, internacao, medicamentos, financeiro e backup em nuvem.
 
 ## Como testar
 
@@ -14,20 +14,24 @@ http://localhost:4177
 
 ```text
 Admin: admin@hotelbeachpet.com / admin123
-Tutor: cliente@hotelbeachpet.com / cliente123
 ```
 
 ## O que ja existe
 
-- Login e criacao de conta para tutor
-- Dashboard no estilo da referencia enviada
-- Area admin com usuarios, agenda, caes, veterinario e vacinas
-- Area de tutor para cadastrar caes, agendar servicos e registrar vacinas
-- Dados salvos no navegador via localStorage para validar o fluxo
+- Dashboard administrativo para decisao diaria
+- Cadastro de caes, tutores e hospedagens
+- Saude veterinaria com internacao, medicamentos e mapa de execucao
+- Financeiro por cachorro, total pago e valores em aberto
+- Backup local no navegador para evitar perda imediata
+- Sincronizacao Supabase pela aba `Nuvem e backup`
 
-## Proxima etapa
+## Sincronizar dados entre aparelhos
 
-- Conectar Supabase Auth para login real
-- Criar tabelas do banco usando `supabase-schema.sql`
-- Trocar localStorage por consultas no Supabase
-- Subir no GitHub e hospedar na Vercel
+1. Rode no Supabase o SQL da tabela `app_state` disponível em `supabase-schema.sql`.
+2. Abra o site no aparelho onde os dados aparecem.
+3. Clique no selo `Local` ou `Nuvem` no topo.
+4. Cole a URL do Supabase e a anon public key.
+5. Clique em `Enviar este aparelho para a nuvem`.
+6. Nos outros aparelhos, cole a mesma URL/chave e clique em `Puxar da nuvem neste aparelho`.
+
+O envio mescla dados por `id` e mantém uma cópia local no aparelho.

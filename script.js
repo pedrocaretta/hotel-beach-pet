@@ -1,6 +1,10 @@
 const STORAGE_KEY = "hotelBeachPetState:v1";
 const CLOUD_CONFIG_KEY = "hotelBeachPetCloudConfig:v1";
 const CLOUD_ROW_ID = "main";
+const DEFAULT_CLOUD_CONFIG = {
+  url: "",
+  anonKey: ""
+};
 
 const seedState = {
   users: [
@@ -63,9 +67,9 @@ function saveState() {
 
 function loadCloudConfig() {
   try {
-    return JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY) || "{}");
+    return { ...DEFAULT_CLOUD_CONFIG, ...JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY) || "{}") };
   } catch {
-    return {};
+    return { ...DEFAULT_CLOUD_CONFIG };
   }
 }
 
@@ -78,6 +82,12 @@ function cleanCloudConfig(config) {
     url: String(config.url || "").trim().replace(/\/+$/, ""),
     anonKey: String(config.anonKey || "").trim()
   };
+}
+
+function saveCloudConfig(config) {
+  cloudConfig = cleanCloudConfig(config);
+  localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig));
+  return cloudConfigured();
 }
 
 function cloudStatusLabel() {
@@ -151,7 +161,12 @@ function queueCloudSave() {
 }
 
 async function pushCloudState(showToast = false) {
-  if (!cloudConfigured()) return;
+  if (!cloudConfigured()) {
+    syncStatus = { state: "local", message: "Cole a URL e a anon key do Supabase antes de enviar." };
+    if (showToast) toast(syncStatus.message);
+    render();
+    return;
+  }
   try {
     syncStatus = { state: "saving", message: "Enviando dados para a nuvem" };
     const payload = { id: CLOUD_ROW_ID, data: serializableState(), updated_at: new Date().toISOString() };
@@ -171,7 +186,12 @@ async function pushCloudState(showToast = false) {
 }
 
 async function pullCloudState(showToast = false) {
-  if (!cloudConfigured()) return;
+  if (!cloudConfigured()) {
+    syncStatus = { state: "local", message: "Cole a URL e a anon key do Supabase antes de puxar." };
+    if (showToast) toast(syncStatus.message);
+    render();
+    return;
+  }
   try {
     syncStatus = { state: "connecting", message: "Buscando dados na nuvem" };
     const rows = await cloudFetch(`app_state?id=eq.${CLOUD_ROW_ID}&select=data,updated_at`);
@@ -1645,12 +1665,16 @@ function modalForm(type, payload, user) {
           <strong>${cloudStatusLabel()}</strong>
           <span>${syncStatus.message}</span>
         </div>
+        <div class="cloud-guide">
+          <strong>No aparelho onde os dados aparecem</strong>
+          <span>Cole a URL e a anon key uma vez, depois clique em Enviar este aparelho para a nuvem. Nos outros aparelhos, use Puxar da nuvem.</span>
+        </div>
         <label class="field"><span>URL do Supabase</span><input name="url" value="${cloudConfig.url || ""}" placeholder="https://seu-projeto.supabase.co"></label>
         <label class="field"><span>Anon public key</span><input name="anonKey" value="${cloudConfig.anonKey || ""}" placeholder="Cole a anon key publica do Supabase"></label>
         <div class="actions cloud-actions">
-          <button class="btn" type="submit">Salvar e sincronizar</button>
-          <button class="btn secondary" type="button" data-cloud-pull>Puxar da nuvem</button>
-          <button class="btn secondary" type="button" data-cloud-push>Enviar este aparelho</button>
+          <button class="btn cloud-primary" type="button" data-cloud-push>Enviar este aparelho para a nuvem</button>
+          <button class="btn secondary" type="button" data-cloud-pull>Puxar da nuvem neste aparelho</button>
+          <button class="btn secondary" type="submit">Salvar configuracao</button>
         </div>
         <div class="form-section-title">Backup dos dados deste aparelho</div>
         <label class="field"><span>Exportar backup</span><textarea readonly rows="6">${backup}</textarea></label>
@@ -1932,8 +1956,14 @@ function bindModal(type, payload, user) {
   const modalFormEl = document.getElementById("modal-form");
   if (!modalFormEl) return;
 
-  document.querySelector("[data-cloud-pull]")?.addEventListener("click", () => pullCloudState(true));
-  document.querySelector("[data-cloud-push]")?.addEventListener("click", () => pushCloudState(true));
+  document.querySelector("[data-cloud-pull]")?.addEventListener("click", () => {
+    saveCloudConfig(Object.fromEntries(new FormData(modalFormEl)));
+    pullCloudState(true);
+  });
+  document.querySelector("[data-cloud-push]")?.addEventListener("click", () => {
+    saveCloudConfig(Object.fromEntries(new FormData(modalFormEl)));
+    pushCloudState(true);
+  });
   document.querySelector("[data-import-backup]")?.addEventListener("click", async () => {
     const raw = modalFormEl.elements.backupImport?.value?.trim();
     if (!raw) return toast("Cole um backup para importar.");
@@ -1957,8 +1987,7 @@ function bindModal(type, payload, user) {
     const data = Object.fromEntries(new FormData(form));
 
     if (type === "cloud") {
-      cloudConfig = cleanCloudConfig(data);
-      localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig));
+      saveCloudConfig(data);
       if (!cloudConfigured()) {
         syncStatus = { state: "local", message: "Salvo neste aparelho. Configure o Supabase para sincronizar." };
         toast("Configuracao da nuvem removida.");
@@ -1966,8 +1995,10 @@ function bindModal(type, payload, user) {
         render();
         return;
       }
-      await pullCloudState(true);
+      syncStatus = { state: "synced", message: "Configuracao salva. Use Enviar este aparelho ou Puxar da nuvem." };
+      toast("Configuracao salva.");
       closeModal();
+      render();
       return;
     }
 

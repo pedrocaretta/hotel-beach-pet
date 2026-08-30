@@ -1557,8 +1557,37 @@ textarea:focus {
   font-size: 12px;
 }
 
+.cloud-guide {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(67, 127, 216, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff, #f5f9ff);
+}
+
+.cloud-guide strong,
+.cloud-guide span {
+  display: block;
+}
+
+.cloud-guide strong {
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.cloud-guide span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .cloud-actions {
   margin-top: 0;
+}
+
+.cloud-primary {
+  flex: 1 1 260px;
 }
 
 .cloud-sql {
